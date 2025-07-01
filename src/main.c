@@ -1,0 +1,359 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_nimble_hci.h"
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "host/ble_hs.h"
+#include "services/gap/ble_svc_gap.h"
+#include "services/gatt/ble_svc_gatt.h"
+#include "sdkconfig.h"
+
+#define DEVICE_NAME "GRSVC1"
+#define FIRMWARE_VERSION "1.0.0"
+#define MANUFACTURER_NAME "Gelidus Research Inc."
+#define MODEL_NUMBER "GRSVC V1"
+#define HARDWARE_REVISION "Rev 1.0"
+#define SOFTWARE_REVISION "ESP-IDF v5.4.2"
+
+char *TAG = "GRSVC1";
+uint8_t ble_addr_type;
+
+#include <host/ble_hs.h>
+#include <string.h>
+
+#include "driver/gpio.h"
+
+#define FLOW_SENSOR_GPIO GPIO_NUM_26  // Flow GPIO pin
+#define VALVE_1_GPIO GPIO_NUM_33  // Valve 1 GPIO pin
+#define VALVE_2_GPIO GPIO_NUM_27  // Valve 2 GPIO pin
+#define POWER_12V_GPIO GPIO_NUM_14  // 12V output GPIO pin
+#define BATTERY_VOLTAGE_GPIO GPIO_NUM_12  // Battery Voltage GPIO pin
+
+static volatile uint32_t pulse_count = 0;
+
+// ISR handler increments pulse count on rising edge
+static void IRAM_ATTR flow_sensor_isr_handler(void* arg) {
+    pulse_count++;
+}
+
+void flow_sensor_init() {
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_POSEDGE,
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << FLOW_SENSOR_GPIO),
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&io_conf);
+
+    // Install ISR service and add handler
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(FLOW_SENSOR_GPIO, flow_sensor_isr_handler, NULL);
+}
+
+void ble_app_advertise(void);
+
+// Command enumeration for switch-case
+typedef enum {
+    CMD_UNKNOWN = 0,
+    CMD_VALVE_1_ON,
+    CMD_VALVE_1_OFF,
+    CMD_VALVE_2_ON,
+    CMD_VALVE_2_OFF,
+    CMD_12V_ON,
+    CMD_12V_OFF,
+    CMD_RESET_FLOW,
+    CMD_STATUS
+} command_t;
+
+// Function to parse command string to enum
+static command_t parse_command(const char* cmd) {
+    if (strcmp(cmd, "VALVE 1 ON") == 0) return CMD_VALVE_1_ON;
+    if (strcmp(cmd, "VALVE 1 OFF") == 0) return CMD_VALVE_1_OFF;
+    if (strcmp(cmd, "VALVE 2 ON") == 0) return CMD_VALVE_2_ON;
+    if (strcmp(cmd, "VALVE 2 OFF") == 0) return CMD_VALVE_2_OFF;
+    if (strcmp(cmd, "12V ON") == 0) return CMD_12V_ON;
+    if (strcmp(cmd, "12V OFF") == 0) return CMD_12V_OFF;
+    if (strcmp(cmd, "RESET FLOW") == 0) return CMD_RESET_FLOW;
+    if (strcmp(cmd, "STATUS") == 0) return CMD_STATUS;
+    return CMD_UNKNOWN;
+}
+
+// Write data to ESP32 defined as server - Control characteristic handler
+static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    char data[32];
+    int data_len = ctxt->om->om_len;
+    
+    // Ensure null termination and prevent buffer overflow
+    if (data_len >= sizeof(data)) {
+        data_len = sizeof(data) - 1;
+    }
+    
+    memcpy(data, ctxt->om->om_data, data_len);
+    data[data_len] = '\0';
+    
+    ESP_LOGI(TAG, "Received command: %s", data);
+    
+    // Parse command and use switch-case for better performance and readability
+    command_t cmd = parse_command(data);
+    
+    switch (cmd) {
+        case CMD_VALVE_1_ON:
+            ESP_LOGI(TAG, "VALVE 1 ON - Activating valve 1");
+            gpio_set_level(VALVE_1_GPIO, 1);
+            break;
+        case CMD_VALVE_1_OFF:
+            ESP_LOGI(TAG, "VALVE 1 OFF - Deactivating valve 1");
+            gpio_set_level(VALVE_1_GPIO, 0);
+            break;
+        case CMD_VALVE_2_ON:
+            ESP_LOGI(TAG, "VALVE 2 ON - Activating valve 2");
+            gpio_set_level(VALVE_2_GPIO, 1);
+            break;
+        case CMD_VALVE_2_OFF:
+            ESP_LOGI(TAG, "VALVE 2 OFF - Deactivating valve 2");
+            gpio_set_level(VALVE_2_GPIO, 0);
+            break;
+        case CMD_12V_ON:
+            ESP_LOGI(TAG, "12V ON - Activating 12V output");
+            gpio_set_level(POWER_12V_GPIO, 1);
+            break;
+        case CMD_12V_OFF:
+            ESP_LOGI(TAG, "12V OFF - Deactivating 12V output");
+            gpio_set_level(POWER_12V_GPIO, 0);
+            break;
+        case CMD_RESET_FLOW:
+            ESP_LOGI(TAG, "RESET FLOW - Resetting flow counter");
+            pulse_count = 0;
+            break;
+        case CMD_STATUS:
+            ESP_LOGI(TAG, "STATUS - Requested device status");
+            // Status will be read via the status characteristic
+            break;
+        case CMD_UNKNOWN:
+        default:
+            ESP_LOGW(TAG, "Unknown command: %s", data);
+            return BLE_ATT_ERR_INVALID_PDU;
+    }
+    
+    return 0;
+}
+
+// Read data from ESP32 defined as server - Status characteristic handler
+static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    // Create status message with device information
+    char status_msg[128];
+    snprintf(status_msg, sizeof(status_msg), 
+             "GRSVC1 Status: Flow=%lu pulses, Uptime=%lu ms", 
+             (unsigned long)pulse_count, 
+             (unsigned long)(esp_timer_get_time() / 1000));
+    
+    os_mbuf_append(ctxt->om, status_msg, strlen(status_msg));
+    return 0;
+}
+
+// Device Information Service characteristic access functions
+static int device_info_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    uint16_t uuid = ble_uuid_u16(ctxt->chr->uuid);
+    const char *info_string;
+    
+    switch (uuid) {
+        case 0x2A29: // Manufacturer Name String
+            info_string = MANUFACTURER_NAME;
+            break;
+        case 0x2A24: // Model Number String
+            info_string = MODEL_NUMBER;
+            break;
+        case 0x2A26: // Firmware Revision String
+            info_string = FIRMWARE_VERSION;
+            break;
+        case 0x2A27: // Hardware Revision String
+            info_string = HARDWARE_REVISION;
+            break;
+        case 0x2A28: // Software Revision String
+            info_string = SOFTWARE_REVISION;
+            break;
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+    
+    return os_mbuf_append(ctxt->om, info_string, strlen(info_string)) == 0 ?
+           0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+
+// Flow rate characteristic access function
+static int flow_rate_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR:
+            // Convert pulse count to flow rate (you may need to adjust this calculation)
+            float flow_rate = (float)pulse_count * 0.1; // Example conversion factor
+            if (os_mbuf_append(ctxt->om, &flow_rate, sizeof(float)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_CHR:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Array of pointers to other service definitions
+// Custom GRSVC1 Multi-Function Service UUID + Device Information Service
+static const struct ble_gatt_svc_def gatt_svcs[] = {
+    {
+        // Custom GRSVC1 Multi-Function Service
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(0x1234),                // Custom service UUID for GRSVC1
+        .characteristics = (struct ble_gatt_chr_def[]){
+            {
+                .uuid = BLE_UUID16_DECLARE(0x5EE0),         // Control characteristic (valve/12V commands)
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+                .access_cb = device_write
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x5EE1),         // Status/data characteristic
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_read
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x5EE2),         // Flow rate characteristic
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .access_cb = flow_rate_chr_access
+            },
+            {0} // End of characteristics
+        }
+    },
+    {
+        // Device Information Service
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(0x180A),                // Device Information Service UUID
+        .characteristics = (struct ble_gatt_chr_def[]){
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A29),         // Manufacturer Name String
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_info_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A26),         // Firmware Revision String
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_info_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A27),         // Hardware Revision String
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_info_access
+            },
+            {0} // End of characteristics
+        }
+    },
+    {0} // End of services
+};
+
+// BLE event handling
+static int ble_gap_event(struct ble_gap_event *event, void *arg)
+{
+    switch (event->type)
+    {
+    // Advertise if connected
+    case BLE_GAP_EVENT_CONNECT:
+        ESP_LOGI("GAP", "BLE GAP EVENT CONNECT %s", event->connect.status == 0 ? "OK!" : "FAILED!");
+        if (event->connect.status != 0)
+        {
+            ble_app_advertise();
+        }
+        break;
+    // Advertise again after completion of the event
+    case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI("GAP", "BLE GAP EVENT DISCONNECTED");
+        break;
+    case BLE_GAP_EVENT_ADV_COMPLETE:
+        ESP_LOGI("GAP", "BLE GAP EVENT");
+        ble_app_advertise();
+        break;
+    default:
+        break;
+    }
+    return 0;
+}
+
+// Define the BLE connection
+void ble_app_advertise(void)
+{
+    // GAP - device name definition
+    struct ble_hs_adv_fields fields;
+    const char *device_name;
+    memset(&fields, 0, sizeof(fields));
+    device_name = ble_svc_gap_device_name(); // Read the BLE device name
+    fields.name = (uint8_t *)device_name;
+    fields.name_len = strlen(device_name);
+    fields.name_is_complete = 1;
+    ble_gap_adv_set_fields(&fields);
+
+    // GAP - device connectivity definition
+    struct ble_gap_adv_params adv_params;
+    memset(&adv_params, 0, sizeof(adv_params));
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND; // connectable or non-connectable
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN; // discoverable or non-discoverable
+    ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
+}
+
+// The application
+void ble_app_on_sync(void)
+{
+    ble_hs_id_infer_auto(0, &ble_addr_type); // Determines the best address type automatically
+    ble_app_advertise();                     // Define the BLE connection
+}
+
+// The infinite task
+void host_task(void *param)
+{
+    nimble_port_run(); // This function will return only when nimble_port_stop() is executed
+}
+
+void app_main()
+{
+    nvs_flash_init();                          // Initialize NVS flash using
+    
+    // Initialize flow sensor
+    flow_sensor_init();
+    ESP_LOGI(TAG, "Flow sensor initialized on GPIO %d", FLOW_SENSOR_GPIO);
+    
+    // Initialize BLE stack
+    // esp_nimble_hci_and_controller_init();   // Initialize ESP controller
+    nimble_port_init();                        // Initialize the host stack
+    ble_svc_gap_device_name_set(DEVICE_NAME);  // Initialize NimBLE configuration - server name
+    ble_svc_gap_init();                        // Initialize NimBLE configuration - gap service
+    ble_svc_gatt_init();                       // Initialize NimBLE configuration - gatt service
+    ble_gatts_count_cfg(gatt_svcs);            // Initialize NimBLE configuration - config gatt services
+    ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
+    ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
+    
+    ESP_LOGI(TAG, "GRSVC1 Multi-Function Device initialized");
+    ESP_LOGI(TAG, "Firmware Version: %s", FIRMWARE_VERSION);
+    ESP_LOGI(TAG, "Manufacturer: %s", MANUFACTURER_NAME);
+    ESP_LOGI(TAG, "Model: %s", MODEL_NUMBER);
+    ESP_LOGI(TAG, "Hardware Revision: %s", HARDWARE_REVISION);
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "BLE Services Available:");
+    ESP_LOGI(TAG, "- Custom GRSVC1 Service (UUID: 0x1234)");
+    ESP_LOGI(TAG, "  * Control characteristic UUID: 0x5EE0 (write commands)");
+    ESP_LOGI(TAG, "  * Status characteristic UUID: 0x5EE1 (read status)");
+    ESP_LOGI(TAG, "  * Flow rate characteristic UUID: 0x5EE2 (read flow data)");
+    ESP_LOGI(TAG, "- Device Information Service (UUID: 0x180A)");
+    ESP_LOGI(TAG, "  * Manufacturer Name, Model, Firmware Version, etc.");
+    
+    nimble_port_freertos_init(host_task);      // Run the thread
+}
