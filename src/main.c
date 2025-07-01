@@ -282,20 +282,202 @@ static int battery_level_chr_access(uint16_t conn_handle, uint16_t attr_handle,
     }
 }
 
-// Flow rate characteristic access function
-static int flow_rate_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+// Flow volume characteristic access function
+static int flow_volume_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
     switch (ctxt->op) {
         case BLE_GATT_ACCESS_OP_READ_CHR:
-            // Convert pulse count to flow rate (you may need to adjust this calculation)
-            float flow_rate = (float)pulse_count * 0.1; // Example conversion factor
-            if (os_mbuf_append(ctxt->om, &flow_rate, sizeof(float)) == 0) {
+            // Convert pulse count to flow volume
+            float flow_volume = (float)pulse_count * 0.1; // Conversion factor
+            if (os_mbuf_append(ctxt->om, &flow_volume, sizeof(float)) == 0) {
                 return 0; // Success
             } else {
                 return BLE_ATT_ERR_INSUFFICIENT_RES;
             }
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
             return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Flow volume characteristic user description access function
+static int flow_volume_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Current Flow Volume in Liters";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Device status characteristic user description access function
+static int device_status_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                                     struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Device Status";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Control characteristic user description access function
+static int control_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Device Control Commands";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Battery level characteristic user description access function
+static int battery_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Battery Level Percentage";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// URI characteristic access function
+static int uri_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR:
+            const char *uri = "https://www.gelidus.ca/setup-guide-grsvc1";
+            if (os_mbuf_append(ctxt->om, uri, strlen(uri)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_CHR:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// URI characteristic user description access function
+static int uri_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Device Information URI";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Humidity characteristic access function
+static int humidity_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR:
+            // Simulate humidity reading (replace with actual sensor reading)
+            uint16_t humidity = 4500; // 45.00% humidity (in hundredths of percent)
+            if (os_mbuf_append(ctxt->om, &humidity, sizeof(humidity)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_CHR:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Humidity characteristic user description access function
+static int humidity_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Relative Humidity Percentage";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Temperature characteristic access function
+static int temperature_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                  struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR:
+            // Simulate temperature reading (replace with actual sensor reading)
+            int16_t temperature = 2350; // 23.50°C (in hundredths of degrees Celsius)
+            if (os_mbuf_append(ctxt->om, &temperature, sizeof(temperature)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_CHR:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+// Temperature characteristic user description access function
+static int temperature_desc_access(uint16_t conn_handle, uint16_t attr_handle,
+                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_DSC:
+            const char *description = "Temperature in Celsius";
+            if (os_mbuf_append(ctxt->om, description, strlen(description)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_DSC:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only descriptor
         default:
             return BLE_ATT_ERR_UNLIKELY;
     }
@@ -310,24 +492,95 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
         .uuid = BLE_UUID16_DECLARE(0x1815),                // Automation IO service UUID for GRSVC1
         .characteristics = (struct ble_gatt_chr_def[]){
             {
-                .uuid = BLE_UUID16_DECLARE(0x5EE0),         // Control characteristic (valve/12V commands)
+                .uuid = BLE_UUID16_DECLARE(0x2A9F),         // User Control Point (Control characteristic)
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-                .access_cb = device_write
+                .access_cb = device_write,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = control_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
             },
             {
-                .uuid = BLE_UUID16_DECLARE(0x5EE1),         // Status/data characteristic
+                .uuid = BLE_UUID16_DECLARE(0x2B3C),             // Status
                 .flags = BLE_GATT_CHR_F_READ,
-                .access_cb = device_read
+                .access_cb = device_read,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = device_status_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
             },
             {
-                .uuid = BLE_UUID16_DECLARE(0x5EE2),         // Flow rate characteristic
+                .uuid = BLE_UUID16_DECLARE(0x2B1B),         // Flow Volume characteristic
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-                .access_cb = flow_rate_chr_access
+                .access_cb = flow_volume_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = flow_volume_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
             },
             {
                 .uuid = BLE_UUID16_DECLARE(0x2A19),         // Battery Level characteristic
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
-                .access_cb = battery_level_chr_access
+                .access_cb = battery_level_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = battery_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A6F),         // Humidity characteristic
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .access_cb = humidity_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = humidity_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2AB6),         // URI characteristic
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = uri_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = uri_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A6E),         // Temperature characteristic
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .access_cb = temperature_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = temperature_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
             },
             {0} // End of characteristics
         }
@@ -351,6 +604,19 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .uuid = BLE_UUID16_DECLARE(0x2A27),         // Hardware Revision String
                 .flags = BLE_GATT_CHR_F_READ,
                 .access_cb = device_info_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2AB6),         // URI characteristic
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = uri_chr_access,
+                .descriptors = (struct ble_gatt_dsc_def[]){
+                    {
+                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
+                        .access_cb = uri_desc_access,
+                        .att_flags = BLE_ATT_F_READ,
+                    },
+                    {0} // End of descriptors
+                }
             },
             {0} // End of characteristics
         }
@@ -450,12 +716,16 @@ void app_main()
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "BLE Services Available:");
     ESP_LOGI(TAG, "- Automation IO Service (UUID: 0x1815)");
-    ESP_LOGI(TAG, "  * Control characteristic UUID: 0x5EE0 (write commands)");
-    ESP_LOGI(TAG, "  * Status characteristic UUID: 0x5EE1 (read status)");
-    ESP_LOGI(TAG, "  * Flow rate characteristic UUID: 0x5EE2 (read flow data)");
+    ESP_LOGI(TAG, "  * Digital Output characteristic UUID: 0x2A56 (write commands)");
+    ESP_LOGI(TAG, "  * Analog Output characteristic UUID: 0x2A58 (read status)");
+    ESP_LOGI(TAG, "  * Volume Flow characteristic UUID: 0x5EE2 (read flow data in L/min)");
     ESP_LOGI(TAG, "  * Battery Level characteristic UUID: 0x2A19 (read battery level)");
+    ESP_LOGI(TAG, "  * Humidity characteristic UUID: 0x2A6F (read humidity level)");
+    ESP_LOGI(TAG, "  * Temperature characteristic UUID: 0x2A6E (read temperature in Celsius)");
+    ESP_LOGI(TAG, "  * URI characteristic UUID: 0x2AB6 (device information link)");
     ESP_LOGI(TAG, "- Device Information Service (UUID: 0x180A)");
     ESP_LOGI(TAG, "  * Manufacturer Name, Model, Firmware Version, etc.");
+    ESP_LOGI(TAG, "  * URI characteristic UUID: 0x2AB6 (device information link)");
     
     nimble_port_freertos_init(host_task);      // Run the thread
 }
