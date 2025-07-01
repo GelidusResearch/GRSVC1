@@ -28,14 +28,19 @@ uint8_t ble_addr_type;
 #include <string.h>
 
 #include "driver/gpio.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 #define FLOW_SENSOR_GPIO GPIO_NUM_26  // Flow GPIO pin
 #define VALVE_1_GPIO GPIO_NUM_33  // Valve 1 GPIO pin
 #define VALVE_2_GPIO GPIO_NUM_27  // Valve 2 GPIO pin
 #define POWER_12V_GPIO GPIO_NUM_14  // 12V output GPIO pin
-#define BATTERY_VOLTAGE_GPIO GPIO_NUM_12  // Battery Voltage GPIO pin
+#define BATTERY_VOLTAGE_GPIO GPIO_NUM_12  // Battery Voltage ADC pin (ADC2_CH5)
 
 static volatile uint32_t pulse_count = 0;
+static adc_oneshot_unit_handle_t adc2_handle;
+static adc_cali_handle_t adc2_cali_chan5_handle;
 
 // ISR handler increments pulse count on rising edge
 static void IRAM_ATTR flow_sensor_isr_handler(void* arg) {
@@ -190,6 +195,92 @@ static int device_info_access(uint16_t conn_handle, uint16_t attr_handle,
            0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+// Battery ADC initialization
+void battery_adc_init() {
+    // Configure ADC2 unit
+    adc_oneshot_unit_init_cfg_t init_config2 = {
+        .unit_id = ADC_UNIT_2,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config2, &adc2_handle));
+
+    // Configure ADC2 channel (GPIO12 = ADC2_CH5)
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC_CHANNEL_5, &config));
+
+    // Try ADC calibration init (optional)
+    adc2_cali_chan5_handle = NULL; // Start with no calibration
+    ESP_LOGI(TAG, "ADC2 configured for battery monitoring (GPIO12)");
+}
+
+// Read battery voltage and convert to percentage (0-100%)
+uint8_t read_battery_level() {
+    uint32_t adc_reading = 0;
+    int raw_value;
+    int successful_reads = 0;
+    
+    // Take multiple samples for better accuracy
+    for (int i = 0; i < 32; i++) {
+        esp_err_t result = adc_oneshot_read(adc2_handle, ADC_CHANNEL_5, &raw_value);
+        if (result == ESP_OK) {
+            adc_reading += raw_value;
+            successful_reads++;
+        } else {
+            ESP_LOGW(TAG, "ADC2 read failed, attempt %d", (int)i);
+        }
+    }
+    
+    // Check if we got any successful reads
+    if (successful_reads == 0) {
+        ESP_LOGW(TAG, "All ADC reads failed, returning default 50 percent");
+        return 50; // Default to 50% if all reads fail
+    }
+    
+    adc_reading /= successful_reads;
+    
+    // Convert to voltage (mV) - simple linear conversion
+    // ADC range: 0-4095 for 12-bit, voltage range: 0-3300mV with 12dB attenuation
+    uint32_t voltage = (adc_reading * 3300) / 4095;
+    
+    // Assuming voltage divider: Battery -> R1 -> ADC_PIN -> R2 -> GND
+    // If using 2:1 voltage divider, multiply by 2
+    voltage *= 2; // Adjust this based on your voltage divider circuit
+    
+    // Convert voltage to battery percentage (assuming 3.0V min, 4.2V max for Li-Ion)
+    uint8_t battery_percentage;
+    if (voltage >= 4200) {
+        battery_percentage = 100;
+    } else if (voltage <= 3000) {
+        battery_percentage = 0;
+    } else {
+        // Linear mapping from 3.0V-4.2V to 0-100%
+        battery_percentage = (uint8_t)((voltage - 3000) * 100 / 1200);
+    }
+    
+    return battery_percentage;
+}
+
+// Battery level characteristic access function
+static int battery_level_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    switch (ctxt->op) {
+        case BLE_GATT_ACCESS_OP_READ_CHR:
+            uint8_t battery_level = read_battery_level();
+            ESP_LOGI(TAG, "Battery level read: %d percent", (int)battery_level);
+            if (os_mbuf_append(ctxt->om, &battery_level, sizeof(battery_level)) == 0) {
+                return 0; // Success
+            } else {
+                return BLE_ATT_ERR_INSUFFICIENT_RES;
+            }
+        case BLE_GATT_ACCESS_OP_WRITE_CHR:
+            return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
+        default:
+            return BLE_ATT_ERR_UNLIKELY;
+    }
+}
 
 // Flow rate characteristic access function
 static int flow_rate_chr_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -216,7 +307,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
     {
         // Custom GRSVC1 Multi-Function Service
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = BLE_UUID16_DECLARE(0x1234),                // Custom service UUID for GRSVC1
+        .uuid = BLE_UUID16_DECLARE(0x1815),                // Automation IO service UUID for GRSVC1
         .characteristics = (struct ble_gatt_chr_def[]){
             {
                 .uuid = BLE_UUID16_DECLARE(0x5EE0),         // Control characteristic (valve/12V commands)
@@ -232,6 +323,11 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .uuid = BLE_UUID16_DECLARE(0x5EE2),         // Flow rate characteristic
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .access_cb = flow_rate_chr_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A19),         // Battery Level characteristic
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .access_cb = battery_level_chr_access
             },
             {0} // End of characteristics
         }
@@ -278,6 +374,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     // Advertise again after completion of the event
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI("GAP", "BLE GAP EVENT DISCONNECTED");
+        ble_app_advertise(); // Restart advertising after disconnect
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         ESP_LOGI("GAP", "BLE GAP EVENT");
@@ -341,6 +438,10 @@ void app_main()
     ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
     ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
     
+    // Initialize battery ADC
+    battery_adc_init();
+    ESP_LOGI(TAG, "Battery ADC initialized");
+    
     ESP_LOGI(TAG, "GRSVC1 Multi-Function Device initialized");
     ESP_LOGI(TAG, "Firmware Version: %s", FIRMWARE_VERSION);
     ESP_LOGI(TAG, "Manufacturer: %s", MANUFACTURER_NAME);
@@ -348,10 +449,11 @@ void app_main()
     ESP_LOGI(TAG, "Hardware Revision: %s", HARDWARE_REVISION);
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "BLE Services Available:");
-    ESP_LOGI(TAG, "- Custom GRSVC1 Service (UUID: 0x1234)");
+    ESP_LOGI(TAG, "- Automation IO Service (UUID: 0x1815)");
     ESP_LOGI(TAG, "  * Control characteristic UUID: 0x5EE0 (write commands)");
     ESP_LOGI(TAG, "  * Status characteristic UUID: 0x5EE1 (read status)");
     ESP_LOGI(TAG, "  * Flow rate characteristic UUID: 0x5EE2 (read flow data)");
+    ESP_LOGI(TAG, "  * Battery Level characteristic UUID: 0x2A19 (read battery level)");
     ESP_LOGI(TAG, "- Device Information Service (UUID: 0x180A)");
     ESP_LOGI(TAG, "  * Manufacturer Name, Model, Firmware Version, etc.");
     
