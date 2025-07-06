@@ -24,6 +24,9 @@
 char *TAG = "GRSVC1";
 uint8_t ble_addr_type;
 
+// Global MAC address string buffer
+static char device_mac_string[18] = "00:00:00:00:00:00";
+
 #include <host/ble_hs.h>
 #include <string.h>
 
@@ -71,6 +74,24 @@ typedef enum {
 
 static ota_state_t ota_state = OTA_STATE_IDLE;
 
+// Initialize MAC address string (call once at startup)
+void init_device_mac_string() {
+    if (ble_hs_synced()) {
+        uint8_t mac_addr[6];
+        int mac_rc = ble_hs_id_copy_addr(ble_addr_type, mac_addr, NULL);
+        if (mac_rc == 0) {
+            snprintf(device_mac_string, sizeof(device_mac_string), "%02X:%02X:%02X:%02X:%02X:%02X",
+                    mac_addr[5], mac_addr[4], mac_addr[3], 
+                    mac_addr[2], mac_addr[1], mac_addr[0]);
+            ESP_LOGI(TAG, "Device MAC address initialized: %s", device_mac_string);
+        } else {
+            ESP_LOGW(TAG, "Failed to read MAC address during initialization, using default");
+        }
+    } else {
+        ESP_LOGW(TAG, "BLE stack not synced during MAC address initialization");
+    }
+}
+
 // ISR handler increments pulse count on rising edge
 static void IRAM_ATTR flow_sensor_isr_handler(void* arg) {
     pulse_count++;
@@ -107,7 +128,8 @@ typedef enum {
     CMD_RESET_FLOW,
     CMD_STATUS,
     CMD_RESTART_ADV,
-    CMD_OTA_INFO
+    CMD_OTA_INFO,
+    CMD_BLE_STATUS
 } command_t;
 
 // Function to parse command string to enum
@@ -122,6 +144,7 @@ static command_t parse_command(const char* cmd) {
     if (strcmp(cmd, "STATUS") == 0) return CMD_STATUS;
     if (strcmp(cmd, "RESTART ADV") == 0) return CMD_RESTART_ADV;
     if (strcmp(cmd, "OTA INFO") == 0) return CMD_OTA_INFO;
+    if (strcmp(cmd, "BLE STATUS") == 0) return CMD_BLE_STATUS;
     return CMD_UNKNOWN;
 }
 
@@ -275,6 +298,58 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
                 ESP_LOGI(TAG, "  3. Ensure sdkconfig has CONFIG_PARTITION_TABLE_TWO_OTA=y");
             }
             break;
+        case CMD_BLE_STATUS:
+            ESP_LOGI(TAG, "BLE STATUS - Displaying comprehensive BLE connection diagnostics");
+            
+            ESP_LOGI(TAG, "=== BLE CONNECTION STATUS ===");
+            ESP_LOGI(TAG, "Connected: %s", is_connected ? "YES" : "NO");
+            ESP_LOGI(TAG, "Advertising: %s", is_advertising ? "YES" : "NO");
+            ESP_LOGI(TAG, "Connection Handle: %d", conn_handle);
+            ESP_LOGI(TAG, "Device Name: %s", ble_svc_gap_device_name());
+            
+            // Get and display MAC address
+            uint8_t own_addr[6];
+            int mac_rc = ble_hs_id_copy_addr(ble_addr_type, own_addr, NULL);
+            if (mac_rc == 0) {
+                ESP_LOGI(TAG, "MAC Address: %02X:%02X:%02X:%02X:%02X:%02X", 
+                         own_addr[5], own_addr[4], own_addr[3], 
+                         own_addr[2], own_addr[1], own_addr[0]);
+                
+                // Also log as hex bytes to help debug web UI issues
+                ESP_LOGI(TAG, "MAC as hex bytes: %02X %02X %02X %02X %02X %02X", 
+                         own_addr[0], own_addr[1], own_addr[2], 
+                         own_addr[3], own_addr[4], own_addr[5]);
+            } else {
+                ESP_LOGE(TAG, "Failed to get MAC address: %d", mac_rc);
+            }
+            
+            ESP_LOGI(TAG, "=== BLE STACK STATUS ===");
+            ESP_LOGI(TAG, "Address Type: %d", ble_addr_type);
+            ESP_LOGI(TAG, "Host Sync Status: %s", ble_hs_synced() ? "SYNCED" : "NOT_SYNCED");
+            
+            ESP_LOGI(TAG, "=== CONNECTION HISTORY ===");
+            ESP_LOGI(TAG, "Uptime: %lu seconds", (unsigned long)(esp_timer_get_time() / 1000000));
+            ESP_LOGI(TAG, "Free Heap: %lu bytes", (unsigned long)esp_get_free_heap_size());
+            ESP_LOGI(TAG, "Min Free Heap: %lu bytes", (unsigned long)esp_get_minimum_free_heap_size());
+            
+            ESP_LOGI(TAG, "=== TROUBLESHOOTING ===");
+            if (!is_connected && !is_advertising) {
+                ESP_LOGW(TAG, "*** NOT CONNECTED AND NOT ADVERTISING ***");
+                ESP_LOGW(TAG, "This indicates a BLE stack issue");
+                ESP_LOGW(TAG, "Try: Send 'RESTART ADV' command");
+            } else if (!is_connected && is_advertising) {
+                ESP_LOGI(TAG, "Device is advertising and ready for connection");
+                ESP_LOGI(TAG, "If web UI can't connect, try refreshing the browser page");
+            } else if (is_connected) {
+                ESP_LOGI(TAG, "Device is connected and functioning normally");
+                ESP_LOGI(TAG, "Connection handle: %d", conn_handle);
+            }
+            
+            ESP_LOGI(TAG, "=== RECOMMENDATIONS ===");
+            ESP_LOGI(TAG, "- For connection issues: Send 'RESTART ADV' command");
+            ESP_LOGI(TAG, "- For browser refresh issues: Wait 2-3 seconds before reconnecting");
+            ESP_LOGI(TAG, "- Clear browser BLE cache if repeated issues occur");
+            break;
         case CMD_UNKNOWN:
         default:
             ESP_LOGW(TAG, "Unknown command: %s", data);
@@ -322,12 +397,21 @@ static int device_info_access(uint16_t conn_handle, uint16_t attr_handle,
         case 0x2A28: // Software Revision String
             info_string = SOFTWARE_REVISION;
             break;
+        case 0xFF04: // Custom UUID for MAC Address (not blocklisted)
+            ESP_LOGI(TAG, "=== MAC Address Characteristic Read Request ===");
+            ESP_LOGI(TAG, "Returning pre-initialized MAC string: '%s'", device_mac_string);
+            info_string = device_mac_string;
+            break;
         default:
             return BLE_ATT_ERR_UNLIKELY;
     }
     
-    return os_mbuf_append(ctxt->om, info_string, strlen(info_string)) == 0 ?
-           0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    ESP_LOGI(TAG, "Device info access returning string: '%s' (length: %d)", info_string, strlen(info_string));
+    
+    int result = os_mbuf_append(ctxt->om, info_string, strlen(info_string));
+    ESP_LOGI(TAG, "os_mbuf_append result: %d", result);
+    
+    return result == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
 // Battery ADC initialization
@@ -732,6 +816,13 @@ static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                     ota_state = OTA_STATE_RECEIVING;
                     ota_last_progress = 0;
                     
+                    // Stop advertising during OTA for stability
+                    if (is_advertising) {
+                        ble_gap_adv_stop();
+                        is_advertising = false;
+                        ESP_LOGI(TAG, "OTA: Stopped advertising for stability");
+                    }
+                    
                     ESP_LOGI(TAG, "OTA: Ready to receive firmware data");
                     break;
                     
@@ -739,7 +830,19 @@ static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                     ESP_LOGI(TAG, "OTA: Finishing update");
                     
                     if (!ota_in_progress) {
+                        // Check if auto-finish already completed
+                        if (ota_state == OTA_STATE_COMPLETE) {
+                            ESP_LOGI(TAG, "OTA: Already completed by auto-finish");
+                            return 0; // Success - already finished
+                        }
                         ESP_LOGW(TAG, "OTA: No update in progress");
+                        return BLE_ATT_ERR_UNLIKELY;
+                    }
+                    
+                    // Check if all data was received
+                    if (ota_bytes_received < ota_total_size) {
+                        ESP_LOGW(TAG, "OTA: Not all data received yet (%lu/%lu bytes)", 
+                                (unsigned long)ota_bytes_received, (unsigned long)ota_total_size);
                         return BLE_ATT_ERR_UNLIKELY;
                     }
                     
@@ -784,6 +887,12 @@ static int ota_control_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                     ota_state = OTA_STATE_IDLE;
                     ota_bytes_received = 0;
                     ota_total_size = 0;
+                    
+                    // Restart advertising after OTA cancellation
+                    if (is_connected && !is_advertising) {
+                        ESP_LOGI(TAG, "OTA: Restarting advertising after cancellation");
+                        // Don't restart advertising if still connected - that's normal
+                    }
                     ota_handle = 0;
                     break;
                     
@@ -844,6 +953,40 @@ static int ota_data_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                 ota_last_progress = progress;
             }
             
+            // Auto-finish OTA when all data is received
+            if (ota_bytes_received >= ota_total_size) {
+                ESP_LOGI(TAG, "OTA: All data received, auto-finishing update...");
+                
+                ota_state = OTA_STATE_VALIDATING;
+                
+                // End OTA update
+                esp_err_t end_err = esp_ota_end(ota_handle);
+                if (end_err != ESP_OK) {
+                    ESP_LOGE(TAG, "OTA: Auto-finish end failed: %s", esp_err_to_name(end_err));
+                    ota_state = OTA_STATE_ERROR;
+                    ota_in_progress = false;
+                    return BLE_ATT_ERR_UNLIKELY;
+                }
+                
+                // Set new boot partition
+                esp_err_t set_err = esp_ota_set_boot_partition(ota_partition);
+                if (set_err != ESP_OK) {
+                    ESP_LOGE(TAG, "OTA: Auto-finish set boot partition failed: %s", esp_err_to_name(set_err));
+                    ota_state = OTA_STATE_ERROR;
+                    ota_in_progress = false;
+                    return BLE_ATT_ERR_UNLIKELY;
+                }
+                
+                ota_state = OTA_STATE_COMPLETE;
+                ota_in_progress = false;
+                
+                ESP_LOGI(TAG, "OTA: Auto-finish completed! Restarting in 2 seconds...");
+                
+                // Schedule restart (shorter delay for auto-finish)
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                esp_restart();
+            }
+            
             return 0;
             
         case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -899,7 +1042,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
         .uuid = BLE_UUID16_DECLARE(0x1815),                // Automation IO service UUID for GRSVC1
         .characteristics = (struct ble_gatt_chr_def[]){
             {
-                .uuid = BLE_UUID16_DECLARE(0x2A9F),         // User Control Point (Control characteristic)
+                .uuid = BLE_UUID16_DECLARE(0xFF01),         // Custom Control characteristic (non-blocklisted)
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
                 .access_cb = device_write,
                 .descriptors = (struct ble_gatt_dsc_def[]){
@@ -990,7 +1133,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 }
             },
             {
-                .uuid = BLE_UUID16_DECLARE(0x2A6C),         // OTA Control characteristic
+                .uuid = BLE_UUID16_DECLARE(0xFF02),         // OTA Control characteristic (custom UUID)
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
                 .access_cb = ota_control_chr_access,
                 .descriptors = (struct ble_gatt_dsc_def[]){
@@ -1003,7 +1146,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 }
             },
             {
-                .uuid = BLE_UUID16_DECLARE(0x2A6B),         // OTA Data characteristic
+                .uuid = BLE_UUID16_DECLARE(0xFF03),         // OTA Data characteristic (custom UUID)
                 .flags = BLE_GATT_CHR_F_WRITE,
                 .access_cb = ota_data_chr_access,
                 .descriptors = (struct ble_gatt_dsc_def[]){
@@ -1039,17 +1182,19 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb = device_info_access
             },
             {
-                .uuid = BLE_UUID16_DECLARE(0x2AB6),         // URI characteristic
+                .uuid = BLE_UUID16_DECLARE(0x2A24),         // Model Number String
                 .flags = BLE_GATT_CHR_F_READ,
-                .access_cb = uri_chr_access,
-                .descriptors = (struct ble_gatt_dsc_def[]){
-                    {
-                        .uuid = BLE_UUID16_DECLARE(0x2901),     // Characteristic User Description
-                        .access_cb = uri_desc_access,
-                        .att_flags = BLE_ATT_F_READ,
-                    },
-                    {0} // End of descriptors
-                }
+                .access_cb = device_info_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0x2A28),         // Software Revision String
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_info_access
+            },
+            {
+                .uuid = BLE_UUID16_DECLARE(0xFF04),         // Custom UUID for MAC address (not blocklisted)
+                .flags = BLE_GATT_CHR_F_READ,
+                .access_cb = device_info_access
             },
             {0} // End of characteristics
         }
@@ -1067,6 +1212,22 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI("GAP", "BLE GAP EVENT CONNECT %s", event->connect.status == 0 ? "OK!" : "FAILED!");
         if (event->connect.status == 0)
         {
+            // Check if we're already connected - reject new connections
+            if (is_connected && conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+                ESP_LOGW("GAP", "Already connected (handle: %d), rejecting new connection (handle: %d)", 
+                         conn_handle, event->connect.conn_handle);
+                // Disconnect the new connection immediately
+                ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+                return 0;
+            }
+            
+            // Check if OTA is in progress - reject connections during OTA
+            if (ota_in_progress) {
+                ESP_LOGW("GAP", "OTA in progress, rejecting connection attempt");
+                ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+                return 0;
+            }
+            
             // Connection successful
             conn_handle = event->connect.conn_handle;
             is_connected = true;
@@ -1086,10 +1247,23 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI("GAP", "BLE GAP EVENT DISCONNECTED - Reason: %d", event->disconnect.reason);
         
-        // Update connection state
+        // Update connection state immediately
         conn_handle = BLE_HS_CONN_HANDLE_NONE;
         is_connected = false;
         is_advertising = false;
+        
+        // Log disconnect reason for debugging
+        const char* disconnect_reason = "Unknown";
+        switch (event->disconnect.reason) {
+            case BLE_HS_ENOTCONN: disconnect_reason = "Not connected"; break;
+            case BLE_HS_ETIMEOUT: disconnect_reason = "Timeout"; break;
+            case BLE_HS_EDONE: disconnect_reason = "Connection terminated by peer"; break;
+            case BLE_HS_ECONTROLLER: disconnect_reason = "Controller error"; break;
+            case 0x13: disconnect_reason = "Remote user terminated connection"; break;
+            case 0x16: disconnect_reason = "Connection terminated by local host"; break;
+            case 0x3d: disconnect_reason = "Unacceptable connection parameters"; break;
+        }
+        ESP_LOGI("GAP", "Disconnect reason: %s (0x%02X)", disconnect_reason, event->disconnect.reason);
         
         // If OTA was in progress, reset state
         if (ota_in_progress) {
@@ -1104,8 +1278,21 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             ota_total_size = 0;
         }
         
-        // Restart advertising after disconnect
+        // Immediate advertising restart for better reconnection
+        ESP_LOGI("GAP", "Immediately restarting advertising after disconnect");
+        
+        // Small delay to ensure proper cleanup before restart
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // Force advertising restart
         ble_app_advertise();
+        
+        // If advertising didn't start immediately, try again after a short delay
+        if (!is_advertising) {
+            ESP_LOGW("GAP", "Initial advertising restart failed, retrying in 500ms");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            ble_app_advertise();
+        }
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         ESP_LOGI("GAP", "BLE GAP EVENT ADV_COMPLETE - Reason: %d", event->adv_complete.reason);
@@ -1127,26 +1314,33 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
 // Define the BLE connection
 void ble_app_advertise(void)
 {
-    // Don't start advertising if already advertising or connected
-    if (is_advertising) {
-        ESP_LOGW(TAG, "Already advertising, skipping...");
+    // Don't start advertising if already connected
+    if (is_connected) {
+        ESP_LOGD(TAG, "Already connected, skipping advertising...");
         return;
     }
     
-    if (is_connected) {
-        ESP_LOGW(TAG, "Already connected, skipping advertising...");
+    // Don't advertise during OTA operations for stability
+    if (ota_in_progress) {
+        ESP_LOGD(TAG, "OTA in progress, skipping advertising...");
         return;
+    }
+
+    // If already advertising, log but don't return - might need to restart
+    if (is_advertising) {
+        ESP_LOGD(TAG, "Already advertising, but continuing to ensure proper state...");
     }
 
     // Get the device's own MAC address
     uint8_t own_addr[6];
     int rc = ble_hs_id_copy_addr(ble_addr_type, own_addr, NULL);
     if (rc == 0) {
-        ESP_LOGI(TAG, "Device MAC Address: %02X:%02X:%02X:%02X:%02X:%02X", 
+        ESP_LOGD(TAG, "Device MAC Address: %02X:%02X:%02X:%02X:%02X:%02X", 
                  own_addr[5], own_addr[4], own_addr[3], 
                  own_addr[2], own_addr[1], own_addr[0]);
     } else {
         ESP_LOGE(TAG, "Failed to get MAC address: %d", rc);
+        // Continue anyway, advertising without MAC in manufacturer data
     }
 
     // GAP - device name definition
@@ -1165,34 +1359,60 @@ void ble_app_advertise(void)
     if (rc == 0) {
         // Copy MAC address in reverse order (little-endian)
         memcpy(&mfg_data[2], own_addr, 6);
+        fields.mfg_data = mfg_data;
+        fields.mfg_data_len = sizeof(mfg_data);
+    } else {
+        // Don't include manufacturer data if MAC address is unavailable
+        fields.mfg_data = NULL;
+        fields.mfg_data_len = 0;
     }
-    fields.mfg_data = mfg_data;
-    fields.mfg_data_len = sizeof(mfg_data);
 
     // Set advertising fields
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
-        ESP_LOGE(TAG, "Failed to set advertising fields: %d", rc);
-        return;
+        ESP_LOGE(TAG, "Failed to set advertising fields: %d (%s)", rc, 
+                 rc == BLE_HS_EBUSY ? "busy" : 
+                 rc == BLE_HS_EINVAL ? "invalid" : "unknown");
+        
+        // Try to stop advertising first and retry
+        ble_gap_adv_stop();
+        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        rc = ble_gap_adv_set_fields(&fields);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "Failed to set advertising fields after retry: %d", rc);
+            return;
+        }
     }
 
     // GAP - device connectivity definition
     struct ble_gap_adv_params adv_params;
     memset(&adv_params, 0, sizeof(adv_params));
-    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND; // connectable or non-connectable
-    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN; // discoverable or non-discoverable
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND; // connectable
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN; // discoverable
+    
+    // Use faster advertising intervals for better reconnection
+    adv_params.itvl_min = BLE_GAP_ADV_FAST_INTERVAL1_MIN;  // 20ms
+    adv_params.itvl_max = BLE_GAP_ADV_FAST_INTERVAL1_MAX;  // 30ms
     
     // Start advertising
     rc = ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
     if (rc == 0) {
         is_advertising = true;
-        ESP_LOGI(TAG, "BLE advertising started successfully");
+        ESP_LOGI(TAG, "BLE advertising started successfully (fast intervals for quick reconnection)");
     } else {
-        ESP_LOGE(TAG, "Failed to start BLE advertising: %d", rc);
+        ESP_LOGE(TAG, "Failed to start BLE advertising: %d (%s)", rc,
+                 rc == BLE_HS_EALREADY ? "already advertising" :
+                 rc == BLE_HS_EBUSY ? "busy" :
+                 rc == BLE_HS_EINVAL ? "invalid parameters" : "unknown");
+        
         is_advertising = false;
         
-        // Note: Retry will be handled by the connection monitor task
-        // to prevent stack overflow from recursive calls
+        // If already advertising error, consider it success
+        if (rc == BLE_HS_EALREADY) {
+            ESP_LOGI(TAG, "Advertising already active, updating state");
+            is_advertising = true;
+        }
     }
 }
 
@@ -1201,34 +1421,72 @@ void force_advertising_restart(void)
 {
     ESP_LOGI(TAG, "Forcing advertising restart...");
     
-    // Stop current advertising if active
-    if (is_advertising) {
-        int rc = ble_gap_adv_stop();
-        if (rc == 0) {
-            ESP_LOGI(TAG, "Stopped current advertising");
-        } else {
-            ESP_LOGW(TAG, "Failed to stop advertising: %d", rc);
-        }
-        is_advertising = false;
+    // Always stop current advertising first, regardless of state
+    int rc = ble_gap_adv_stop();
+    if (rc == 0) {
+        ESP_LOGI(TAG, "Stopped current advertising");
+    } else {
+        ESP_LOGW(TAG, "Failed to stop advertising (may not have been active): %d", rc);
     }
+    
+    // Reset advertising state
+    is_advertising = false;
     
     // Reset connection state if needed
     if (!is_connected) {
         conn_handle = BLE_HS_CONN_HANDLE_NONE;
     }
     
-    // Small delay to ensure cleanup
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // Wait for proper cleanup
+    vTaskDelay(pdMS_TO_TICKS(200));
     
-    // Start advertising again
+    // Start advertising again with retry logic
+    ESP_LOGI(TAG, "Attempting to restart advertising...");
     ble_app_advertise();
+    
+    // Wait a bit and verify advertising started
+    vTaskDelay(pdMS_TO_TICKS(300));
+    if (!is_advertising) {
+        ESP_LOGW(TAG, "Advertising restart failed after multiple attempts");
+    } else {
+        ESP_LOGI(TAG, "Advertising restart successful");
+    }
 }
 
 // The application
 void ble_app_on_sync(void)
 {
-    ble_hs_id_infer_auto(0, &ble_addr_type); // Determines the best address type automatically
-    ble_app_advertise();                     // Define the BLE connection
+    ESP_LOGI(TAG, "BLE stack synchronized, starting services...");
+    
+    // Determine the best address type automatically
+    int rc = ble_hs_id_infer_auto(0, &ble_addr_type);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to infer address type: %d", rc);
+    } else {
+        ESP_LOGI(TAG, "Address type inferred: %d", ble_addr_type);
+    }
+    
+    // Get and log our BLE address
+    uint8_t own_addr[6];
+    rc = ble_hs_id_copy_addr(ble_addr_type, own_addr, NULL);
+    if (rc == 0) {
+        ESP_LOGI(TAG, "BLE Address: %02X:%02X:%02X:%02X:%02X:%02X", 
+                 own_addr[5], own_addr[4], own_addr[3], 
+                 own_addr[2], own_addr[1], own_addr[0]);
+    }
+    
+    // Initialize the MAC address string for device info characteristic
+    init_device_mac_string();
+    
+    // Verify GATT services are available
+    ESP_LOGI(TAG, "BLE services should now be discoverable");
+    ESP_LOGI(TAG, "Expected services:");
+    ESP_LOGI(TAG, "  - Automation IO (0x1815) with 9 characteristics");
+    ESP_LOGI(TAG, "  - Device Information (0x180A) with 5 characteristics");
+    ESP_LOGI(TAG, "Total expected characteristics: 14");
+    
+    // Start advertising
+    ble_app_advertise();
 }
 
 // Connection monitoring task - ensures advertising is always active when not connected
@@ -1239,40 +1497,81 @@ void connection_monitor_task(void *param)
     static bool prev_connected = false;
     static bool prev_advertising = false;
     static uint8_t retry_count = 0;
+    static uint32_t disconnect_time = 0;
     
     ESP_LOGI(TAG, "Connection monitor task started");
     
     while (1) {
         uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
         
+        // Track when we become disconnected
+        if (prev_connected && !is_connected) {
+            disconnect_time = current_time;
+            ESP_LOGI(TAG, "Connection lost, starting aggressive reconnection mode");
+        }
+        
         // Check if we should be advertising but aren't
         if (!is_connected && !is_advertising) {
-            // Limit advertising attempts to once every 2 seconds to prevent spam
-            if (current_time - last_adv_attempt > 2000) {
-                ESP_LOGW(TAG, "Not connected and not advertising - starting advertising (retry %d)", retry_count);
+            uint32_t retry_interval = 1000; // Default 1 second
+            
+            // Use faster retry for the first 10 seconds after disconnect
+            if (current_time - disconnect_time < 10000) {
+                retry_interval = 500; // 500ms for quick reconnection
+            } else if (current_time - disconnect_time < 30000) {
+                retry_interval = 1000; // 1 second for medium-term
+            } else {
+                retry_interval = 2000; // 2 seconds for long-term
+            }
+            
+            // Check if enough time has passed since last attempt
+            if (current_time - last_adv_attempt > retry_interval) {
+                ESP_LOGW(TAG, "Not connected and not advertising - starting advertising (retry %d, interval %dms)", 
+                         retry_count, (int)retry_interval);
+                
+                // Force stop any existing advertising first
+                ble_gap_adv_stop();
+                vTaskDelay(pdMS_TO_TICKS(50));
+                
                 ble_app_advertise();
                 last_adv_attempt = current_time;
                 
                 // Wait a bit and check if advertising started
-                vTaskDelay(pdMS_TO_TICKS(500));
+                vTaskDelay(pdMS_TO_TICKS(200));
                 if (!is_advertising) {
                     retry_count++;
-                    if (retry_count > 10) {
-                        ESP_LOGE(TAG, "Advertising failed after 10 retries, waiting longer...");
-                        retry_count = 0;
-                        vTaskDelay(pdMS_TO_TICKS(5000)); // Wait 5 seconds before trying again
+                    ESP_LOGW(TAG, "Advertising start failed, attempt %d", retry_count);
+                    
+                    // Reset BLE stack if too many failures
+                    if (retry_count > 5) {
+                        ESP_LOGE(TAG, "Too many advertising failures, attempting BLE reset");
+                        
+                        // Stop advertising completely
+                        ble_gap_adv_stop();
+                        
+                        // Wait a moment
+                        vTaskDelay(pdMS_TO_TICKS(1000));
+                        
+                        // Try to restart advertising
+                        ble_app_advertise();
+                        
+                        retry_count = 0; // Reset counter after attempting recovery
+                        vTaskDelay(pdMS_TO_TICKS(2000)); // Wait before next check
                     }
                 } else {
                     retry_count = 0; // Reset on success
+                    ESP_LOGI(TAG, "Advertising restarted successfully");
                 }
             }
         } else {
             retry_count = 0; // Reset when connected or advertising
         }
         
-        // Log state changes (reduced logging to save stack)
+        // Log state changes
         if (is_connected != prev_connected) {
             ESP_LOGI(TAG, "Connection: %s", is_connected ? "CONNECTED" : "DISCONNECTED");
+            if (is_connected) {
+                ESP_LOGI(TAG, "Connection established successfully, handle: %d", conn_handle);
+            }
             prev_connected = is_connected;
         }
         
@@ -1283,15 +1582,16 @@ void connection_monitor_task(void *param)
         
         // Periodic status log (every 30 seconds) - simplified
         if (current_time - last_status_log > 30000) {
-            ESP_LOGI(TAG, "BLE Status - Conn:%s Adv:%s Handle:%d", 
+            ESP_LOGI(TAG, "BLE Status - Conn:%s Adv:%s Handle:%d Uptime:%ds", 
                      is_connected ? "Y" : "N", 
                      is_advertising ? "Y" : "N",
-                     conn_handle);
+                     conn_handle,
+                     (int)(current_time / 1000));
             last_status_log = current_time;
         }
         
-        // Check every 5 seconds
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        // Check more frequently for better responsiveness
+        vTaskDelay(pdMS_TO_TICKS(1000)); // Check every 1 second instead of 5
     }
 }
 
@@ -1310,13 +1610,48 @@ void app_main()
     ESP_LOGI(TAG, "Flow sensor initialized on GPIO %d", FLOW_SENSOR_GPIO);
     
     // Initialize BLE stack
+    ESP_LOGI(TAG, "Initializing BLE stack...");
     // esp_nimble_hci_and_controller_init();   // Initialize ESP controller
     nimble_port_init();                        // Initialize the host stack
     ble_svc_gap_device_name_set(DEVICE_NAME);  // Initialize NimBLE configuration - server name
     ble_svc_gap_init();                        // Initialize NimBLE configuration - gap service
     ble_svc_gatt_init();                       // Initialize NimBLE configuration - gatt service
-    ble_gatts_count_cfg(gatt_svcs);            // Initialize NimBLE configuration - config gatt services
-    ble_gatts_add_svcs(gatt_svcs);             // Initialize NimBLE configuration - queues gatt services.
+    
+    // Count and validate GATT services
+    int rc = ble_gatts_count_cfg(gatt_svcs);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to count GATT services: %d", rc);
+    } else {
+        ESP_LOGI(TAG, "GATT services counted successfully");
+    }
+    
+    // Add GATT services
+    rc = ble_gatts_add_svcs(gatt_svcs);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to add GATT services: %d", rc);
+    } else {
+        ESP_LOGI(TAG, "GATT services added successfully");
+        
+        // Log service details
+        ESP_LOGI(TAG, "Registered BLE Services:");
+        ESP_LOGI(TAG, "  1. Automation IO Service (0x1815) with %d characteristics:", 9);
+        ESP_LOGI(TAG, "     - Control Point (0xFF01) - Read/Write");
+        ESP_LOGI(TAG, "     - Status (0x2B3C) - Read");
+        ESP_LOGI(TAG, "     - Volume Flow characteristic UUID: 0x2B1B (read flow data in L/min)");
+        ESP_LOGI(TAG, "     - Battery Level characteristic UUID: 0x2A19 (read battery level)");
+        ESP_LOGI(TAG, "     - Humidity characteristic UUID: 0x2A6F (read humidity level)");
+        ESP_LOGI(TAG, "     - Temperature characteristic UUID: 0x2A6E (read temperature in Celsius)");
+        ESP_LOGI(TAG, "     - OTA Control characteristic UUID: 0xFF02 (firmware update control)");
+        ESP_LOGI(TAG, "     - OTA Data characteristic UUID: 0xFF03 (firmware update data)");
+        ESP_LOGI(TAG, "  2. Device Information Service (0x180A) with %d characteristics:", 6);
+        ESP_LOGI(TAG, "     - Manufacturer Name (0x2A29) - Read");
+        ESP_LOGI(TAG, "     - Firmware Revision (0x2A26) - Read");
+        ESP_LOGI(TAG, "     - Hardware Revision (0x2A27) - Read");
+        ESP_LOGI(TAG, "     - Model Number (0x2A24) - Read");
+        ESP_LOGI(TAG, "     - Software Revision (0x2A28) - Read");
+        ESP_LOGI(TAG, "     - MAC Address (0xFF04) - Read");
+    }
+    
     ble_hs_cfg.sync_cb = ble_app_on_sync;      // Initialize application
     
     // Initialize battery ADC
@@ -1378,19 +1713,19 @@ void app_main()
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "BLE Services Available:");
     ESP_LOGI(TAG, "- Automation IO Service (UUID: 0x1815)");
-    ESP_LOGI(TAG, "  * User Control Point characteristic UUID: 0x2A9F (write commands)");
-    ESP_LOGI(TAG, "    Commands: VALVE 1/2 ON/OFF, 12V ON/OFF, RESET FLOW, STATUS, RESTART ADV, OTA INFO");
+    ESP_LOGI(TAG, "  * User Control Point characteristic UUID: 0xFF01 (write commands)");
+    ESP_LOGI(TAG, "    Commands: VALVE 1/2 ON/OFF, 12V ON/OFF, RESET FLOW, STATUS, RESTART ADV, OTA INFO, BLE STATUS");
     ESP_LOGI(TAG, "  * Status characteristic UUID: 0x2B3C (read status)");
     ESP_LOGI(TAG, "  * Volume Flow characteristic UUID: 0x2B1B (read flow data in L/min)");
     ESP_LOGI(TAG, "  * Battery Level characteristic UUID: 0x2A19 (read battery level)");
     ESP_LOGI(TAG, "  * Humidity characteristic UUID: 0x2A6F (read humidity level)");
     ESP_LOGI(TAG, "  * Temperature characteristic UUID: 0x2A6E (read temperature in Celsius)");
-    ESP_LOGI(TAG, "  * OTA Control characteristic UUID: 0x2A6C (firmware update control)");
-    ESP_LOGI(TAG, "  * OTA Data characteristic UUID: 0x2A6B (firmware update data)");
+    ESP_LOGI(TAG, "  * OTA Control characteristic UUID: 0xFF02 (firmware update control)");
+    ESP_LOGI(TAG, "  * OTA Data characteristic UUID: 0xFF03 (firmware update data)");
     ESP_LOGI(TAG, "  * URI characteristic UUID: 0x2AB6 (device information link)");
     ESP_LOGI(TAG, "- Device Information Service (UUID: 0x180A)");
     ESP_LOGI(TAG, "  * Manufacturer Name, Model, Firmware Version, etc.");
-    ESP_LOGI(TAG, "  * URI characteristic UUID: 0x2AB6 (device information link)");
+    ESP_LOGI(TAG, "  * MAC Address characteristic UUID: 0xFF04 (device MAC address)");
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "BLE Advertising Features:");
     ESP_LOGI(TAG, "- Device name: %s", DEVICE_NAME);

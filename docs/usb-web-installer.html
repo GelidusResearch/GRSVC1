@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRSVC1 - USB Flash Tool</title>
+    <script
+        type="module"
+        src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"
+    ></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .nav-back {
+            color: rgba(255, 255, 255, 0.9);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            transition: background 0.2s ease;
+        }
+
+        .nav-back:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+
+        .install-section {
+            margin: 30px 0;
+        }
+
+        .install-section h2 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .install-section p {
+            color: #6b7280;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        esp-web-install-button {
+            --esp-tools-button-color: #667eea;
+            --esp-tools-button-text-color: white;
+            --esp-tools-button-border-radius: 8px;
+            display: block;
+            margin: 20px auto;
+            font-size: 1.1em;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .status-info {
+            background: #eff6ff;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        .status-error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .status-success {
+            background: #f0fdf4;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .status-warning {
+            background: #fffbeb;
+            color: #92400e;
+            border: 1px solid #fbbf24;
+        }
+
+        .debug-info {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 0.9em;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .requirements {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .requirements h3 {
+            color: #374151;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .requirements ul {
+            margin-left: 20px;
+            color: #4b5563;
+        }
+
+        .requirements li {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+
+        .steps {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .steps h3 {
+            color: #0c4a6e;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin: 12px 0;
+            padding: 8px 0;
+        }
+
+        .step-number {
+            background: #0ea5e9;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            color: #0c4a6e;
+            line-height: 1.5;
+        }
+
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .browser-warning {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #dc2626;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="nav-back">← Back to Main Menu</a>
+        
+        <div class="header">
+            <h1>🔌 USB Flash Tool</h1>
+            <p>Flash GRSVC1 firmware via USB connection</p>
+        </div>
+
+        <div class="card">
+            <div class="requirements">
+                <h3>📋 Requirements</h3>
+                <ul>
+                    <li><strong>Browser:</strong> Chrome 89+, Edge 89+, or Opera 75+ (desktop only)</li>
+                    <li><strong>Connection:</strong> USB cable connected to ESP32 device</li>
+                    <li><strong>Permissions:</strong> Allow serial port access when prompted</li>
+                    <li><strong>Driver:</strong> ESP32 USB driver may be required on some systems</li>
+                </ul>
+            </div>
+
+            <div class="steps">
+                <h3>🔧 Installation Steps</h3>
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">Connect your ESP32 device to computer via USB cable</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">Put device in programming mode (hold BOOT button while pressing RESET, if needed)</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">Click "Install GRSVC1 Firmware" - this will flash the complete firmware with OTA partition table</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">Select your ESP32 device from the serial port list</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">Follow the on-screen instructions to complete installation</div>
+                </div>
+                <div class="step">
+                    <div class="step-number">6</div>
+                    <div class="step-content">After first USB flash, future updates can be done wirelessly via BLE</div>
+                </div>
+            </div>
+
+            <div class="install-section">
+                <h2>📦 Install GRSVC1 Firmware v1.0.0</h2>
+                <p>This will flash the complete GRSVC1 firmware including OTA partition table for future wireless updates.</p>
+                
+                <div class="status status-info">
+                    <strong>ℹ️ First Time Setup</strong><br>
+                    • This USB flash includes the complete firmware with OTA partition table<br>
+                    • After first USB installation, future updates can be done wirelessly via BLE<br>
+                    • The device will support dual-partition OTA updates for safe firmware upgrades
+                </div>
+                
+                <div id="browser-warning" class="browser-warning hidden">
+                    <strong>❌ Unsupported Browser</strong><br>
+                    ESP Web Tools requires Chrome 89+, Edge 89+, or Opera 75+ on desktop.<br>
+                    Mobile browsers are not supported for USB serial communication.
+                </div>
+                
+                <div id="https-warning" class="status status-warning hidden">
+                    <strong>⚠️ HTTPS Required</strong><br>
+                    Web Serial API requires a secure connection. Please access this page via HTTPS.
+                </div>
+                
+                <esp-web-install-button manifest="./manifest.json">
+                    <button slot="activate">⚡ Install GRSVC1 Firmware</button>
+                    <span slot="unsupported">❌ Your browser doesn't support Web Serial API</span>
+                    <span slot="not-allowed">⚠️ HTTPS required for Web Serial</span>
+                </esp-web-install-button>
+
+                <div id="status" class="status status-info">
+                    🔄 Initializing ESP Web Tools...
+                </div>
+            </div>
+
+            <div id="debug" class="debug-info hidden">
+                <strong>Debug Information:</strong><br>
+                <div id="debug-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const debugEl = document.getElementById('debug');
+        const debugContent = document.getElementById('debug-content');
+        const browserWarning = document.getElementById('browser-warning');
+        const httpsWarning = document.getElementById('https-warning');
+
+        function updateStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status status-${type}`;
+            
+            // Add to debug log
+            const timestamp = new Date().toLocaleTimeString();
+            debugContent.innerHTML += `[${timestamp}] ${message}<br>`;
+            debugEl.classList.remove('hidden');
+            debugEl.scrollTop = debugEl.scrollHeight;
+            
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function checkBrowserCompatibility() {
+            // Check for Web Serial API support
+            if (!('serial' in navigator)) {
+                browserWarning.classList.remove('hidden');
+                updateStatus('❌ Web Serial API not supported in this browser', 'error');
+                return false;
+            }
+
+            // Check HTTPS requirement (except for localhost)
+            if (window.location.protocol !== 'https:' && 
+                !window.location.hostname.includes('localhost') && 
+                !window.location.hostname.includes('127.0.0.1')) {
+                httpsWarning.classList.remove('hidden');
+                updateStatus('⚠️ HTTPS connection recommended for Web Serial API', 'warning');
+            }
+
+            return true;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('Page loaded, checking browser compatibility...');
+            
+            if (!checkBrowserCompatibility()) {
+                return;
+            }
+
+            updateStatus('✅ Browser compatibility check passed', 'success');
+            
+            // Wait for ESP Web Tools to load
+            setTimeout(() => {
+                const installButton = document.querySelector('esp-web-install-button');
+                if (installButton) {
+                    updateStatus('✅ ESP Web Tools loaded successfully', 'success');
+                    
+                    // Add event listeners for better user feedback
+                    installButton.addEventListener('state-changed', (event) => {
+                        const state = event.detail;
+                        updateStatus(`ESP Web Tools state: ${state}`, 'info');
+                    });
+
+                    installButton.addEventListener('error', (event) => {
+                        const error = event.detail;
+                        updateStatus(`ESP Web Tools error: ${error}`, 'error');
+                    });
+
+                    // Check manifest file
+                    fetch('./manifest.json')
+                        .then(response => {
+                            if (response.ok) {
+                                updateStatus('✅ Manifest file loaded successfully', 'success');
+                                return response.json();
+                            } else {
+                                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                            }
+                        })
+                        .then(manifest => {
+                            updateStatus(`Manifest: ${manifest.name} v${manifest.version}`, 'success');
+                            
+                            // Check if firmware file is accessible
+                            updateStatus('Checking firmware file availability...');
+                            return fetch('./firmware/grsvc1-r1-v1.0.0.bin', { method: 'HEAD' });
+                        })
+                        .then(response => {
+                            if (response.ok) {
+                                const size = response.headers.get('content-length');
+                                const sizeKB = size ? Math.round(size / 1024) : 'unknown';
+                                updateStatus(`✅ Firmware file accessible (${sizeKB} KB)`, 'success');
+                                updateStatus('🚀 Ready to flash! Click the button above to begin.', 'success');
+                            } else {
+                                updateStatus(`⚠️ Firmware file: HTTP ${response.status}`, 'warning');
+                                updateStatus('Flashing may still work if file exists on server', 'info');
+                            }
+                        })
+                        .catch(error => {
+                            updateStatus(`⚠️ Setup check failed: ${error.message}`, 'error');
+                            updateStatus('You can still try flashing - the file may exist on the server', 'info');
+                        });
+                        
+                } else {
+                    updateStatus('❌ ESP Web Tools component failed to load', 'error');
+                    updateStatus('Please refresh the page and try again', 'info');
+                }
+            }, 1000);
+        });
+
+        // Add helpful user interaction
+        document.querySelector('esp-web-install-button').addEventListener('click', () => {
+            updateStatus('🔄 Starting firmware installation process...', 'info');
+            updateStatus('Please select your ESP32 device from the port list', 'info');
+        });
+    </script>
+</body>
+</html>
