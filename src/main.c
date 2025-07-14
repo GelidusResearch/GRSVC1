@@ -1453,6 +1453,27 @@ void force_advertising_restart(void)
     }
 }
 
+// Initialize output GPIOs for valves and 12V power
+void output_gpio_init() {
+    // Configure valve and power output GPIOs
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << VALVE_1_GPIO) | (1ULL << VALVE_2_GPIO) | (1ULL << POWER_12V_GPIO),
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,   // Enable pull-down when inactive
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+    };
+    gpio_config(&io_conf);
+    
+    // Set all outputs to low (inactive) state initially
+    gpio_set_level(VALVE_1_GPIO, 0);
+    gpio_set_level(VALVE_2_GPIO, 0);
+    gpio_set_level(POWER_12V_GPIO, 0);
+    
+    ESP_LOGI(TAG, "Output GPIOs initialized: VALVE_1=%d, VALVE_2=%d, POWER_12V=%d", 
+             VALVE_1_GPIO, VALVE_2_GPIO, POWER_12V_GPIO);
+}
+
 // The application
 void ble_app_on_sync(void)
 {
@@ -1608,6 +1629,10 @@ void app_main()
     // Initialize flow sensor
     flow_sensor_init();
     ESP_LOGI(TAG, "Flow sensor initialized on GPIO %d", FLOW_SENSOR_GPIO);
+    
+    // Initialize output GPIOs for valves and 12V power
+    output_gpio_init();
+    ESP_LOGI(TAG, "Output GPIOs initialized with pull-down enabled");
     
     // Initialize BLE stack
     ESP_LOGI(TAG, "Initializing BLE stack...");

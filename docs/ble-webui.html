@@ -118,6 +118,7 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
+            transition: all 0.2s ease;
         }
 
         .toggle-btn.on {
@@ -126,6 +127,16 @@
 
         .toggle-btn.off {
             background: #333333;
+        }
+
+        .toggle-btn:disabled {
+            opacity: 0.6 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+
+        .toggle-btn:not(:disabled):active {
+            transform: scale(0.98);
         }
 
         .sensor-grid {
@@ -385,6 +396,12 @@
                 <span id="powerText">OFF</span>
             </button>
         </div>
+        
+        <div class="control-group">
+            <div class="control-title">Diagnostics</div>
+            <button class="btn" onclick="sendCommand('TEST GPIO')" style="background: #17a2b8; margin: 5px 0;">Test GPIO Hardware</button>
+            <button class="btn" onclick="sendCommand('STATUS')" style="background: #6c757d; margin: 5px 0;">Get Device Status</button>
+        </div>
     </div>
 
     <!-- Firmware Update -->
@@ -560,11 +577,18 @@
 
         // Connect to device
         async function connectToDevice() {
-            if (isReconnecting) return;
+            if (isReconnecting) {
+                log('Reconnection in progress, please wait', 'warning');
+                return;
+            }
+            
+            // Disable connect button to prevent multiple connection attempts
+            connectBtn.disabled = true;
+            connectBtn.textContent = 'Connecting...';
             
             try {
                 manualDisconnect = false; // Reset manual disconnect flag
-                log('Connecting...');
+                log('Requesting device...');
                 
                 // Always request device fresh to handle pairing
                 device = await navigator.bluetooth.requestDevice({
@@ -572,36 +596,92 @@
                     optionalServices: [AUTOMATION_SERVICE_UUID, DEVICE_INFO_SERVICE_UUID]
                 });
                 
+                log('Device selected, connecting to GATT server...');
+                
                 // Add disconnect listener
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
 
                 server = await device.gatt.connect();
-                automationService = await server.getPrimaryService(AUTOMATION_SERVICE_UUID);
-                deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
-                macAddressCharacteristic = await deviceInfoService.getCharacteristic(MAC_ADDRESS_CHARACTERISTIC_UUID);
-                firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
+                log('GATT server connected, discovering services...');
                 
-                controlCharacteristic = await automationService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
-                statusCharacteristic = await automationService.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
-                batteryCharacteristic = await automationService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
-                temperatureCharacteristic = await automationService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
-                humidityCharacteristic = await automationService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
-                flowCharacteristic = await automationService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
-                otaControlCharacteristic = await automationService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
-                otaDataCharacteristic = await automationService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
+                // Get services with timeout
+                const serviceTimeout = 10000; // 10 second timeout
+                
+                const getServiceWithTimeout = async (uuid, name) => {
+                    const promise = server.getPrimaryService(uuid);
+                    const timeout = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error(`Timeout getting ${name} service`)), serviceTimeout)
+                    );
+                    return Promise.race([promise, timeout]);
+                };
+                
+                automationService = await getServiceWithTimeout(AUTOMATION_SERVICE_UUID, 'automation');
+                deviceInfoService = await getServiceWithTimeout(DEVICE_INFO_SERVICE_UUID, 'device info');
+                
+                log('Services discovered, getting characteristics...');
+                
+                // Get characteristics with individual error handling
+                const getCharacteristic = async (service, uuid, name, required = true) => {
+                    try {
+                        return await service.getCharacteristic(uuid);
+                    } catch (error) {
+                        if (required) {
+                            throw new Error(`Required characteristic ${name} not found: ${error.message}`);
+                        } else {
+                            log(`Optional characteristic ${name} not available: ${error.message}`, 'warning');
+                            return null;
+                        }
+                    }
+                };
+                
+                // Required characteristics
+                controlCharacteristic = await getCharacteristic(automationService, CONTROL_CHARACTERISTIC_UUID, 'control', true);
+                statusCharacteristic = await getCharacteristic(automationService, STATUS_CHARACTERISTIC_UUID, 'status', true);
+                
+                // Optional characteristics
+                batteryCharacteristic = await getCharacteristic(automationService, BATTERY_CHARACTERISTIC_UUID, 'battery', false);
+                temperatureCharacteristic = await getCharacteristic(automationService, TEMPERATURE_CHARACTERISTIC_UUID, 'temperature', false);
+                humidityCharacteristic = await getCharacteristic(automationService, HUMIDITY_CHARACTERISTIC_UUID, 'humidity', false);
+                flowCharacteristic = await getCharacteristic(automationService, FLOW_CHARACTERISTIC_UUID, 'flow', false);
+                otaControlCharacteristic = await getCharacteristic(automationService, OTA_CONTROL_CHARACTERISTIC_UUID, 'OTA control', false);
+                otaDataCharacteristic = await getCharacteristic(automationService, OTA_DATA_CHARACTERISTIC_UUID, 'OTA data', false);
+                macAddressCharacteristic = await getCharacteristic(deviceInfoService, MAC_ADDRESS_CHARACTERISTIC_UUID, 'MAC address', false);
+                firmwareVersionCharacteristic = await getCharacteristic(deviceInfoService, FIRMWARE_VERSION_CHARACTERISTIC_UUID, 'firmware version', false);
+
+                log('All characteristics discovered');
+                
+                // Test the connection with a simple command
+                log('Testing connection with STATUS command...');
+                try {
+                    await sendCommand('STATUS');
+                    log('Connection test successful');
+                } catch (error) {
+                    log(`Connection test failed: ${error.message}`, 'warning');
+                    // Continue anyway, might work for other commands
+                }
 
                 // Read device info immediately after connection
                 await readDeviceInfo();
 
+                // Reset control states to ensure UI is in sync
+                controlStates = { valve1: false, valve2: false, power: false };
+                updateControlButton('valve1', false);
+                updateControlButton('valve2', false);
+                updateControlButton('power', false);
+
                 updateConnectionStatus(true);
                 startMonitoring();
                 startConnectionCheck();
-                log('Connected! Connection will persist when page is minimized.');
+                log('Connected successfully! Connection will persist when page is minimized.');
                 
             } catch (error) {
-                log(`Error: ${error.message}`, 'error');
+                log(`Connection failed: ${error.message}`, 'error');
                 updateConnectionStatus(false);
                 device = null; // Clear device reference on connection failure
+            } finally {
+                // Re-enable connect button
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Connect';
             }
         }
 
@@ -830,18 +910,44 @@
 
         // Toggle control
         function toggleControl(controlId, commandPrefix) {
-            if (!controlCharacteristic) {
-                log('Not connected', 'error');
+            // Check connection state more thoroughly
+            if (!device || !device.gatt || !device.gatt.connected || !controlCharacteristic) {
+                log('Not connected or characteristic not available', 'error');
                 return;
             }
 
+            // Prevent rapid button clicks
+            const btn = document.getElementById(`${controlId}Btn`);
+            if (btn.disabled) {
+                log('Command in progress, please wait', 'warning');
+                return;
+            }
+
+            // Disable button during command execution
+            btn.disabled = true;
+            
+            // Toggle state
             controlStates[controlId] = !controlStates[controlId];
             const isOn = controlStates[controlId];
             
+            // Update UI immediately for responsiveness
             updateControlButton(controlId, isOn);
             
             const command = `${commandPrefix} ${isOn ? 'ON' : 'OFF'}`;
-            sendCommand(command);
+            
+            // Send command and re-enable button after completion
+            sendCommand(command).then(() => {
+                // Re-enable button after command completes
+                setTimeout(() => {
+                    btn.disabled = false;
+                }, 500); // Small delay to prevent rapid clicking
+            }).catch((error) => {
+                // On error, revert the state and button
+                log(`Command failed: ${error.message}`, 'error');
+                controlStates[controlId] = !controlStates[controlId];
+                updateControlButton(controlId, !isOn);
+                btn.disabled = false;
+            });
         }
 
         // Update button
@@ -849,6 +955,9 @@
             const btn = document.getElementById(`${controlId}Btn`);
             const icon = document.getElementById(`${controlId}Icon`);
             const text = document.getElementById(`${controlId}Text`);
+            
+            // Store the current state in the button element for verification
+            btn.setAttribute('data-state', isOn ? 'on' : 'off');
             
             if (isOn) {
                 btn.className = 'toggle-btn on';
@@ -859,25 +968,60 @@
                 text.textContent = 'OFF';
                 icon.textContent = (controlId === 'power') ? '⚡' : '🔒';
             }
+            
+            // Add visual feedback for disabled state
+            if (btn.disabled) {
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.style.opacity = '';
+                btn.style.cursor = 'pointer';
+            }
         }
 
         // Send command
         async function sendCommand(command) {
             try {
+                // Verify connection state thoroughly
                 if (!device || !device.gatt || !device.gatt.connected || !controlCharacteristic) {
-                    log('Not connected', 'error');
-                    return;
+                    throw new Error('Device not connected or characteristic not available');
+                }
+
+                // Test connection with a small read operation first
+                try {
+                    if (batteryCharacteristic) {
+                        await batteryCharacteristic.readValue();
+                    }
+                } catch (testError) {
+                    throw new Error('Connection test failed - device may be disconnected');
                 }
 
                 const encoder = new TextEncoder();
-                await controlCharacteristic.writeValue(encoder.encode(command));
+                const commandData = encoder.encode(command);
+                
+                // Add timeout to prevent hanging
+                const writePromise = controlCharacteristic.writeValue(commandData);
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Command timeout')), 5000)
+                );
+                
+                await Promise.race([writePromise, timeoutPromise]);
                 log(`> ${command}`);
 
             } catch (error) {
-                log(`Error: ${error.message}`, 'error');
-                if (!isReconnecting) {
-                    handleDisconnection();
+                log(`Command error: ${error.message}`, 'error');
+                
+                // Check if this is a connection issue
+                if (error.message.includes('disconnected') || 
+                    error.message.includes('not available') ||
+                    error.message.includes('Connection test failed')) {
+                    if (!isReconnecting) {
+                        handleDisconnection();
+                    }
                 }
+                
+                // Re-throw error for calling function to handle
+                throw error;
             }
         }
 
