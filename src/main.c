@@ -183,21 +183,21 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
     
     switch (cmd) {
         case CMD_VALVE_1_ON:
-            ESP_LOGI(TAG, "VALVE 1 ON - Pulsing valve 1 for 30ms (GPIO %d)", VALVE_1_GPIO);
+            ESP_LOGI(TAG, "VALVE 1 ON - Pulsing valve 1 for 50ms (GPIO %d)", VALVE_1_GPIO);
             
             // Check current GPIO state before pulse
             int initial_level = gpio_get_level(VALVE_1_GPIO);
             ESP_LOGI(TAG, "VALVE 1 - GPIO %d initial level: %d", VALVE_1_GPIO, initial_level);
             
-            // Generate 30ms pulse to toggle valve
+            // Generate 50ms pulse to toggle valve
             esp_err_t ret = gpio_set_level(VALVE_1_GPIO, 1);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d HIGH: %s", VALVE_1_GPIO, esp_err_to_name(ret));
                 break;
             }
             
-            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 30ms...");
-            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 50ms...");
+            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms pulse
             
             ret = gpio_set_level(VALVE_1_GPIO, 0);
             if (ret != ESP_OK) {
@@ -209,21 +209,21 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             break;
             
         case CMD_VALVE_1_OFF:
-            ESP_LOGI(TAG, "VALVE 1 OFF - Pulsing valve 1 for 30ms (GPIO %d)", VALVE_1_GPIO);
+            ESP_LOGI(TAG, "VALVE 1 OFF - Pulsing valve 1 for 50ms (GPIO %d)", VALVE_1_GPIO);
             
             // Check current GPIO state before pulse
             int initial_level_v1 = gpio_get_level(VALVE_1_GPIO);
             ESP_LOGI(TAG, "VALVE 1 - GPIO %d initial level: %d", VALVE_1_GPIO, initial_level_v1);
             
-            // Generate 30ms pulse to toggle valve
+            // Generate 50ms pulse to toggle valve
             esp_err_t ret_v1 = gpio_set_level(VALVE_1_GPIO, 1);
             if (ret_v1 != ESP_OK) {
                 ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d HIGH: %s", VALVE_1_GPIO, esp_err_to_name(ret_v1));
                 break;
             }
             
-            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 30ms...");
-            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 50ms...");
+            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms pulse
             
             ret_v1 = gpio_set_level(VALVE_1_GPIO, 0);
             if (ret_v1 != ESP_OK) {
@@ -235,17 +235,17 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             break;
             
         case CMD_VALVE_2_ON:
-            ESP_LOGI(TAG, "VALVE 2 ON - Pulsing valve 2 for 30ms (GPIO %d)", VALVE_2_GPIO);
+            ESP_LOGI(TAG, "VALVE 2 ON - Pulsing valve 2 for 50ms (GPIO %d)", VALVE_2_GPIO);
             
-            // Generate 30ms pulse to toggle valve
+            // Generate 50ms pulse to toggle valve
             esp_err_t ret_v2_on = gpio_set_level(VALVE_2_GPIO, 1);
             if (ret_v2_on != ESP_OK) {
                 ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d HIGH: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_on));
                 break;
             }
             
-            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 30ms...");
-            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 50ms...");
+            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms pulse
             
             ret_v2_on = gpio_set_level(VALVE_2_GPIO, 0);
             if (ret_v2_on != ESP_OK) {
@@ -257,17 +257,17 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             break;
             
         case CMD_VALVE_2_OFF:
-            ESP_LOGI(TAG, "VALVE 2 OFF - Pulsing valve 2 for 30ms (GPIO %d)", VALVE_2_GPIO);
+            ESP_LOGI(TAG, "VALVE 2 OFF - Pulsing valve 2 for 50ms (GPIO %d)", VALVE_2_GPIO);
             
-            // Generate 30ms pulse to toggle valve
+            // Generate 50ms pulse to toggle valve
             esp_err_t ret_v2_off = gpio_set_level(VALVE_2_GPIO, 1);
             if (ret_v2_off != ESP_OK) {
                 ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d HIGH: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_off));
                 break;
             }
             
-            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 30ms...");
-            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 50ms...");
+            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms pulse
             
             ret_v2_off = gpio_set_level(VALVE_2_GPIO, 0);
             if (ret_v2_off != ESP_OK) {
@@ -1585,6 +1585,20 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             is_connected = true;
             is_advertising = false;
             ESP_LOGI("GAP", "Connection established, handle: %d", conn_handle);
+            
+            // Read fresh DHT sensor data for immediate availability to connected client
+            ESP_LOGI("GAP", "Reading fresh sensor data for connected client...");
+            float temp, hum;
+            esp_err_t read_err = dht_single_read(&dht_sensor, &temp, &hum);
+            if (read_err == ESP_OK) {
+                last_temperature = temp;
+                last_humidity = hum;
+                ESP_LOGI("GAP", "Fresh sensor data: Temperature=%.2f°C, Humidity=%.2f%%", temp, hum);
+            } else {
+                ESP_LOGW("GAP", "Failed to read fresh sensor data: %s", esp_err_to_name(read_err));
+                ESP_LOGW("GAP", "Client will receive last known values: Temperature=%.2f°C, Humidity=%.2f%%", 
+                         last_temperature, last_humidity);
+            }
         }
         else
         {

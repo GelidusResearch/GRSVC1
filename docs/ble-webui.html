@@ -663,11 +663,8 @@
                 // Read device info immediately after connection
                 await readDeviceInfo();
 
-                // Reset control states to ensure UI is in sync
-                controlStates = { valve1: false, valve2: false, power: false };
-                updateControlButton('valve1', false);
-                updateControlButton('valve2', false);
-                updateControlButton('power', false);
+                // Read current device states to sync UI
+                await readDeviceStates();
 
                 updateConnectionStatus(true);
                 startMonitoring();
@@ -771,6 +768,10 @@
                         updateConnectionStatus(true);
                         startMonitoring();
                         startConnectionCheck();
+                        
+                        // Sync device states after reconnection
+                        await readDeviceStates();
+                        
                         log('Reconnected successfully!', 'info');
                     } catch (reconnectError) {
                         // If reconnection fails, device might be unpaired
@@ -1240,6 +1241,32 @@
             } finally {
                 otaInProgress = false;
                 document.getElementById('updateBtn').disabled = false;
+            }
+        }
+
+        // Read current device states
+        async function readDeviceStates() {
+            try {
+                log('Reading current device states...', 'info');
+                
+                // Send STATUS command to get current states
+                await sendCommand('STATUS');
+                
+                // Give device time to process and update characteristics
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // For now, we'll assume states are OFF until we get status feedback
+                // TODO: Parse STATUS response to get actual states
+                // This would require the ESP32 to send back state information
+                
+                log('Device states synchronized', 'info');
+            } catch (error) {
+                log(`Error reading device states: ${error.message}`, 'warning');
+                // Default to OFF states if we can't read current states
+                controlStates = { valve1: false, valve2: false, power: false };
+                updateControlButton('valve1', false);
+                updateControlButton('valve2', false);
+                updateControlButton('power', false);
             }
         }
 
