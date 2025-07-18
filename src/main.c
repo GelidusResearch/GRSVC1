@@ -14,22 +14,8 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "sdkconfig.h"
 
-#define DEVICE_NAME "GRSVC1"
-#define FIRMWARE_VERSION "1.0.0"
-#define MANUFACTURER_NAME "Gelidus Research Inc."
-#define MODEL_NUMBER "GRSVC V1"
-#define HARDWARE_REVISION "Rev 1.0"
-#define SOFTWARE_REVISION "ESP-IDF v5.4.2"
-
-char *TAG = "GRSVC1";
-uint8_t ble_addr_type;
-
-// Global MAC address string buffer
-static char device_mac_string[18] = "00:00:00:00:00:00";
-
 #include <host/ble_hs.h>
 #include <string.h>
-
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
@@ -39,15 +25,39 @@ static char device_mac_string[18] = "00:00:00:00:00:00";
 #include "esp_partition.h"
 #include "esp_system.h"
 
+#include "dht_sensor.h"
+
+#define DEVICE_NAME "GRSVC1"
+#define FIRMWARE_VERSION "1.0.0"
+#define MANUFACTURER_NAME "Gelidus Research Inc."
+#define MODEL_NUMBER "GRSVC V1"
+#define HARDWARE_REVISION "Rev 1.0"
+#define SOFTWARE_REVISION "ESP-IDF v5.4.2"
 #define FLOW_SENSOR_GPIO GPIO_NUM_26  // Flow GPIO pin
 #define VALVE_1_GPIO GPIO_NUM_33  // Valve 1 GPIO pin
 #define VALVE_2_GPIO GPIO_NUM_27  // Valve 2 GPIO pin
 #define POWER_12V_GPIO GPIO_NUM_14  // 12V output GPIO pin
+#define STATUS_LED_GPIO GPIO_NUM_4  // Status LED GPIO pin 
 #define BATTERY_VOLTAGE_GPIO GPIO_NUM_12  // Battery Voltage ADC pin (ADC2_CH5)
+#define DHT_SENSOR_GPIO GPIO_NUM_32  // DHT sensor GPIO pin
 
+char *TAG = "GRSVC1";
+uint8_t ble_addr_type;
+
+// Globals
+static char device_mac_string[18] = "00:00:00:00:00:00";
 static volatile uint32_t pulse_count = 0;
 static adc_oneshot_unit_handle_t adc2_handle;
 static adc_cali_handle_t adc2_cali_chan5_handle;
+
+// DHT sensor
+static dht_sensor_t dht_sensor;
+static float last_temperature = NAN;
+static float last_humidity = NAN;
+
+// Valve state tracking (since latching valves don't provide feedback)
+static bool valve_1_state = false; // false = OFF, true = ON
+static bool valve_2_state = false; // false = OFF, true = ON
 
 // Connection state tracking
 static uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -129,7 +139,9 @@ typedef enum {
     CMD_STATUS,
     CMD_RESTART_ADV,
     CMD_OTA_INFO,
-    CMD_BLE_STATUS
+    CMD_BLE_STATUS,
+    CMD_TEST_DHT,
+    CMD_DHT_REINIT
 } command_t;
 
 // Function to parse command string to enum
@@ -145,6 +157,8 @@ static command_t parse_command(const char* cmd) {
     if (strcmp(cmd, "RESTART ADV") == 0) return CMD_RESTART_ADV;
     if (strcmp(cmd, "OTA INFO") == 0) return CMD_OTA_INFO;
     if (strcmp(cmd, "BLE STATUS") == 0) return CMD_BLE_STATUS;
+    if (strcmp(cmd, "TEST DHT") == 0) return CMD_TEST_DHT;
+    if (strcmp(cmd, "DHT REINIT") == 0) return CMD_DHT_REINIT;
     return CMD_UNKNOWN;
 }
 
@@ -169,20 +183,99 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
     
     switch (cmd) {
         case CMD_VALVE_1_ON:
-            ESP_LOGI(TAG, "VALVE 1 ON - Activating valve 1");
-            gpio_set_level(VALVE_1_GPIO, 1);
+            ESP_LOGI(TAG, "VALVE 1 ON - Pulsing valve 1 for 30ms (GPIO %d)", VALVE_1_GPIO);
+            
+            // Check current GPIO state before pulse
+            int initial_level = gpio_get_level(VALVE_1_GPIO);
+            ESP_LOGI(TAG, "VALVE 1 - GPIO %d initial level: %d", VALVE_1_GPIO, initial_level);
+            
+            // Generate 30ms pulse to toggle valve
+            esp_err_t ret = gpio_set_level(VALVE_1_GPIO, 1);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d HIGH: %s", VALVE_1_GPIO, esp_err_to_name(ret));
+                break;
+            }
+            
+            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 30ms...");
+            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            
+            ret = gpio_set_level(VALVE_1_GPIO, 0);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d LOW: %s", VALVE_1_GPIO, esp_err_to_name(ret));
+            } else {
+                valve_1_state = true; // Update state tracking
+                ESP_LOGI(TAG, "VALVE 1 - Pulse complete, valve toggled to ON state");
+            }
             break;
+            
         case CMD_VALVE_1_OFF:
-            ESP_LOGI(TAG, "VALVE 1 OFF - Deactivating valve 1");
-            gpio_set_level(VALVE_1_GPIO, 0);
+            ESP_LOGI(TAG, "VALVE 1 OFF - Pulsing valve 1 for 30ms (GPIO %d)", VALVE_1_GPIO);
+            
+            // Check current GPIO state before pulse
+            int initial_level_v1 = gpio_get_level(VALVE_1_GPIO);
+            ESP_LOGI(TAG, "VALVE 1 - GPIO %d initial level: %d", VALVE_1_GPIO, initial_level_v1);
+            
+            // Generate 30ms pulse to toggle valve
+            esp_err_t ret_v1 = gpio_set_level(VALVE_1_GPIO, 1);
+            if (ret_v1 != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d HIGH: %s", VALVE_1_GPIO, esp_err_to_name(ret_v1));
+                break;
+            }
+            
+            ESP_LOGI(TAG, "VALVE 1 - Pulse HIGH, holding for 30ms...");
+            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            
+            ret_v1 = gpio_set_level(VALVE_1_GPIO, 0);
+            if (ret_v1 != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 1 - Failed to set GPIO %d LOW: %s", VALVE_1_GPIO, esp_err_to_name(ret_v1));
+            } else {
+                valve_1_state = false; // Update state tracking
+                ESP_LOGI(TAG, "VALVE 1 - Pulse complete, valve toggled to OFF state");
+            }
             break;
+            
         case CMD_VALVE_2_ON:
-            ESP_LOGI(TAG, "VALVE 2 ON - Activating valve 2");
-            gpio_set_level(VALVE_2_GPIO, 1);
+            ESP_LOGI(TAG, "VALVE 2 ON - Pulsing valve 2 for 30ms (GPIO %d)", VALVE_2_GPIO);
+            
+            // Generate 30ms pulse to toggle valve
+            esp_err_t ret_v2_on = gpio_set_level(VALVE_2_GPIO, 1);
+            if (ret_v2_on != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d HIGH: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_on));
+                break;
+            }
+            
+            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 30ms...");
+            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            
+            ret_v2_on = gpio_set_level(VALVE_2_GPIO, 0);
+            if (ret_v2_on != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d LOW: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_on));
+            } else {
+                valve_2_state = true; // Update state tracking
+                ESP_LOGI(TAG, "VALVE 2 - Pulse complete, valve toggled to ON state");
+            }
             break;
+            
         case CMD_VALVE_2_OFF:
-            ESP_LOGI(TAG, "VALVE 2 OFF - Deactivating valve 2");
-            gpio_set_level(VALVE_2_GPIO, 0);
+            ESP_LOGI(TAG, "VALVE 2 OFF - Pulsing valve 2 for 30ms (GPIO %d)", VALVE_2_GPIO);
+            
+            // Generate 30ms pulse to toggle valve
+            esp_err_t ret_v2_off = gpio_set_level(VALVE_2_GPIO, 1);
+            if (ret_v2_off != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d HIGH: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_off));
+                break;
+            }
+            
+            ESP_LOGI(TAG, "VALVE 2 - Pulse HIGH, holding for 30ms...");
+            vTaskDelay(pdMS_TO_TICKS(30)); // 30ms pulse
+            
+            ret_v2_off = gpio_set_level(VALVE_2_GPIO, 0);
+            if (ret_v2_off != ESP_OK) {
+                ESP_LOGE(TAG, "VALVE 2 - Failed to set GPIO %d LOW: %s", VALVE_2_GPIO, esp_err_to_name(ret_v2_off));
+            } else {
+                valve_2_state = false; // Update state tracking
+                ESP_LOGI(TAG, "VALVE 2 - Pulse complete, valve toggled to OFF state");
+            }
             break;
         case CMD_12V_ON:
             ESP_LOGI(TAG, "12V ON - Activating 12V output");
@@ -198,6 +291,25 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             break;
         case CMD_STATUS:
             ESP_LOGI(TAG, "STATUS - Requested device status");
+            
+            // Log current tracked valve states (for latching valves)
+            ESP_LOGI(TAG, "=== VALVE STATES (TRACKED) ===");
+            ESP_LOGI(TAG, "VALVE_1: %s", valve_1_state ? "ON" : "OFF");
+            ESP_LOGI(TAG, "VALVE_2: %s", valve_2_state ? "ON" : "OFF");
+            
+            // Log current GPIO states for debugging (should normally be LOW for pulsed valves)
+            ESP_LOGI(TAG, "=== GPIO STATES (CURRENT) ===");
+            ESP_LOGI(TAG, "VALVE_1 (GPIO %d): %d (should be 0 - pulsed control)", VALVE_1_GPIO, gpio_get_level(VALVE_1_GPIO));
+            ESP_LOGI(TAG, "VALVE_2 (GPIO %d): %d (should be 0 - pulsed control)", VALVE_2_GPIO, gpio_get_level(VALVE_2_GPIO));
+            ESP_LOGI(TAG, "POWER_12V (GPIO %d): %d", POWER_12V_GPIO, gpio_get_level(POWER_12V_GPIO));
+            ESP_LOGI(TAG, "FLOW_SENSOR (GPIO %d): %d", FLOW_SENSOR_GPIO, gpio_get_level(FLOW_SENSOR_GPIO));
+            ESP_LOGI(TAG, "DHT_SENSOR (GPIO %d): %d", DHT_SENSOR_GPIO, gpio_get_level(DHT_SENSOR_GPIO));
+            
+            ESP_LOGI(TAG, "=== SYSTEM STATUS ===");
+            ESP_LOGI(TAG, "Flow pulses: %lu", (unsigned long)pulse_count);
+            ESP_LOGI(TAG, "Uptime: %lu seconds", (unsigned long)(esp_timer_get_time() / 1000000));
+            ESP_LOGI(TAG, "Free heap: %lu bytes", (unsigned long)esp_get_free_heap_size());
+            
             // Status will be read via the status characteristic
             break;
         case CMD_RESTART_ADV:
@@ -349,6 +461,204 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             ESP_LOGI(TAG, "- For connection issues: Send 'RESTART ADV' command");
             ESP_LOGI(TAG, "- For browser refresh issues: Wait 2-3 seconds before reconnecting");
             ESP_LOGI(TAG, "- Clear browser BLE cache if repeated issues occur");
+            break;
+        case CMD_TEST_DHT:
+            ESP_LOGI(TAG, "TEST DHT - Running comprehensive DHT sensor diagnostic test");
+            
+            ESP_LOGI(TAG, "=== DHT SENSOR TEST ===");
+            ESP_LOGI(TAG, "DHT Sensor GPIO: %d", DHT_SENSOR_GPIO);
+            ESP_LOGI(TAG, "DHT Sensor Type: DHT22");
+            
+            // Enable debug mode for detailed output
+            bool old_debug = dht_sensor.debug_enabled;
+            dht_sensor.debug_enabled = true;
+            
+            // Test sensor initialization status
+            if (dht_sensor.isr_handler_installed) {
+                ESP_LOGI(TAG, "DHT ISR handler: INSTALLED");
+            } else {
+                ESP_LOGW(TAG, "DHT ISR handler: NOT INSTALLED");
+                ESP_LOGW(TAG, "Try reinitializing with: dht_begin(&dht_sensor)");
+            }
+            
+            // Check initial GPIO state
+            ESP_LOGI(TAG, "=== GPIO %d STATUS (Before read) ===", DHT_SENSOR_GPIO);
+            ESP_LOGI(TAG, "Initial GPIO level: %d", gpio_get_level(DHT_SENSOR_GPIO));
+            
+            // Perform multiple read attempts for reliability analysis
+            ESP_LOGI(TAG, "=== MULTIPLE READ TEST (3 attempts) ===");
+            int success_count = 0;
+            float temp_readings[3] = {NAN, NAN, NAN};
+            float hum_readings[3] = {NAN, NAN, NAN};
+            
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                ESP_LOGI(TAG, "DHT read attempt %d/3...", attempt);
+                
+                float temp, hum;
+                esp_err_t read_err = dht_single_read(&dht_sensor, &temp, &hum);
+                
+                if (read_err == ESP_OK) {
+                    ESP_LOGI(TAG, "  Attempt %d SUCCESS: T=%.2f°C, H=%.2f%%", attempt, temp, hum);
+                    temp_readings[attempt-1] = temp;
+                    hum_readings[attempt-1] = hum;
+                    success_count++;
+                    
+                    // Update cached values with latest successful read
+                    last_temperature = temp;
+                    last_humidity = hum;
+                } else {
+                    ESP_LOGE(TAG, "  Attempt %d FAILED: %s", attempt, esp_err_to_name(read_err));
+                }
+                
+                // Wait between attempts to avoid sensor overload
+                if (attempt < 3) {
+                    vTaskDelay(pdMS_TO_TICKS(2000)); // 2 second delay
+                }
+            }
+            
+            // Analyze results
+            ESP_LOGI(TAG, "=== READ RESULTS ANALYSIS ===");
+            ESP_LOGI(TAG, "Successful reads: %d/3 (%.1f%%)", success_count, (success_count * 100.0f) / 3.0f);
+            
+            if (success_count > 0) {
+                // Calculate averages and ranges
+                float temp_sum = 0, hum_sum = 0;
+                float temp_min = 999, temp_max = -999;
+                float hum_min = 999, hum_max = -999;
+                int valid_temps = 0, valid_hums = 0;
+                
+                for (int i = 0; i < 3; i++) {
+                    if (!isnan(temp_readings[i])) {
+                        temp_sum += temp_readings[i];
+                        temp_min = fminf(temp_min, temp_readings[i]);
+                        temp_max = fmaxf(temp_max, temp_readings[i]);
+                        valid_temps++;
+                    }
+                    if (!isnan(hum_readings[i])) {
+                        hum_sum += hum_readings[i];
+                        hum_min = fminf(hum_min, hum_readings[i]);
+                        hum_max = fmaxf(hum_max, hum_readings[i]);
+                        valid_hums++;
+                    }
+                }
+                
+                if (valid_temps > 0) {
+                    float temp_avg = temp_sum / valid_temps;
+                    ESP_LOGI(TAG, "Temperature: Avg=%.2f°C, Range=%.2f-%.2f°C, Span=%.2f°C", 
+                             temp_avg, temp_min, temp_max, temp_max - temp_min);
+                    ESP_LOGI(TAG, "Temperature (Fahrenheit): Avg=%.2f°F", dht_convert_c_to_f(temp_avg));
+                }
+                
+                if (valid_hums > 0) {
+                    float hum_avg = hum_sum / valid_hums;
+                    ESP_LOGI(TAG, "Humidity: Avg=%.2f%%, Range=%.2f-%.2f%%, Span=%.2f%%", 
+                             hum_avg, hum_min, hum_max, hum_max - hum_min);
+                }
+                
+                // Check for reasonable values
+                bool temp_reasonable = (valid_temps > 0 && temp_min > -40 && temp_max < 80);
+                bool hum_reasonable = (valid_hums > 0 && hum_min >= 0 && hum_max <= 100);
+                
+                ESP_LOGI(TAG, "Data validation: Temperature %s, Humidity %s", 
+                         temp_reasonable ? "REASONABLE" : "OUT OF RANGE",
+                         hum_reasonable ? "REASONABLE" : "OUT OF RANGE");
+                
+            } else {
+                ESP_LOGW(TAG, "No successful reads - sensor may be disconnected or faulty");
+                
+                // Display cached values if available
+                if (!isnan(last_temperature) && !isnan(last_humidity)) {
+                    ESP_LOGI(TAG, "Last known values:");
+                    ESP_LOGI(TAG, "  Temperature: %.2f°C", last_temperature);
+                    ESP_LOGI(TAG, "  Humidity: %.2f%%", last_humidity);
+                } else {
+                    ESP_LOGW(TAG, "No cached sensor values available");
+                }
+            }
+            
+            // Restore original debug setting
+            dht_sensor.debug_enabled = old_debug;
+            
+            ESP_LOGI(TAG, "=== GPIO %d STATUS (After read) ===", DHT_SENSOR_GPIO);
+            ESP_LOGI(TAG, "Final GPIO level: %d", gpio_get_level(DHT_SENSOR_GPIO));
+            
+            ESP_LOGI(TAG, "=== DHT TROUBLESHOOTING ===");
+            if (success_count == 0) {
+                ESP_LOGE(TAG, "All reads failed - check hardware:");
+                ESP_LOGI(TAG, "1. DHT sensor wiring (VCC, GND, Data to GPIO %d)", DHT_SENSOR_GPIO);
+                ESP_LOGI(TAG, "2. EXTERNAL 4.7kΩ pull-up resistor on data line (CRITICAL!)");
+                ESP_LOGI(TAG, "   - Internal ESP32 pull-up (~45kΩ) may be insufficient");
+                ESP_LOGI(TAG, "   - Connect 4.7kΩ resistor between Data pin and VCC");
+                ESP_LOGI(TAG, "3. Power supply (3.3V or 5V depending on sensor model)");
+                ESP_LOGI(TAG, "4. Sensor type matches (DHT22 configured)");
+                ESP_LOGI(TAG, "5. GPIO pin not conflicting with other functions");
+            } else if (success_count < 3) {
+                ESP_LOGW(TAG, "Intermittent reads - possible issues:");
+                ESP_LOGI(TAG, "1. Loose connections or poor solder joints");
+                ESP_LOGI(TAG, "2. Insufficient pull-up resistor (try external 4.7kΩ) or long wires");
+                ESP_LOGI(TAG, "3. Power supply noise or voltage drops");
+                ESP_LOGI(TAG, "4. Sensor aging or environmental interference");
+            } else {
+                ESP_LOGI(TAG, "Sensor working well - all reads successful");
+            }
+            
+            ESP_LOGI(TAG, "=== PULL-UP RESISTOR INFO ===");
+            ESP_LOGI(TAG, "Current configuration: Internal ESP32 pull-up ENABLED (~45kΩ)");
+            ESP_LOGI(TAG, "Recommended: EXTERNAL 4.7kΩ pull-up resistor for reliability");
+            ESP_LOGI(TAG, "Wiring: Data pin -> 4.7kΩ resistor -> VCC (3.3V/5V)");
+            ESP_LOGI(TAG, "Note: External resistor is especially important with:");
+            ESP_LOGI(TAG, "  - Wire lengths > 20cm");
+            ESP_LOGI(TAG, "  - Breadboard connections");
+            ESP_LOGI(TAG, "  - Noisy electrical environments");
+            
+            ESP_LOGI(TAG, "=== ADDITIONAL TIPS ===");
+            ESP_LOGI(TAG, "- Allow 2+ seconds between readings");
+            ESP_LOGI(TAG, "- Sensor needs warm-up time after power-on");
+            ESP_LOGI(TAG, "- Use short, good quality wires for data connection");
+            ESP_LOGI(TAG, "- Check for electromagnetic interference sources");
+            break;
+        case CMD_DHT_REINIT:
+            ESP_LOGI(TAG, "DHT REINIT - Reinitializing DHT sensor");
+            
+            ESP_LOGI(TAG, "=== DHT SENSOR REINITIALIZATION ===");
+            
+            // Cleanup existing sensor if initialized
+            if (dht_sensor.isr_handler_installed || dht_sensor.service_installed) {
+                ESP_LOGI(TAG, "Cleaning up existing DHT sensor configuration...");
+                dht_cleanup(&dht_sensor);
+                ESP_LOGI(TAG, "DHT cleanup completed");
+                
+                // Small delay to ensure cleanup is complete
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+            
+            // Reinitialize sensor
+            ESP_LOGI(TAG, "Reinitializing DHT sensor on GPIO %d...", DHT_SENSOR_GPIO);
+            dht_init(&dht_sensor, DHT_SENSOR_GPIO, DHT_TYPE_DHT22);
+            
+            esp_err_t dht_err = dht_begin(&dht_sensor);
+            if (dht_err == ESP_OK) {
+                ESP_LOGI(TAG, "DHT sensor reinitialized successfully");
+                
+                // Test with a single read
+                ESP_LOGI(TAG, "Testing reinitialized sensor...");
+                float temp, hum;
+                esp_err_t read_err = dht_single_read(&dht_sensor, &temp, &hum);
+                if (read_err == ESP_OK) {
+                    last_temperature = temp;
+                    last_humidity = hum;
+                    ESP_LOGI(TAG, "Test read SUCCESS: Temperature=%.2f°C, Humidity=%.2f%%", temp, hum);
+                } else {
+                    ESP_LOGW(TAG, "Test read failed: %s", esp_err_to_name(read_err));
+                    ESP_LOGW(TAG, "Sensor may need more time to stabilize");
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to reinitialize DHT sensor: %s", esp_err_to_name(dht_err));
+                ESP_LOGE(TAG, "Possible hardware issue or GPIO conflict");
+            }
+            
+            ESP_LOGI(TAG, "=== REINITIALIZATION COMPLETE ===");
+            ESP_LOGI(TAG, "Use 'TEST DHT' command to verify sensor functionality");
             break;
         case CMD_UNKNOWN:
         default:
@@ -632,14 +942,35 @@ static int uri_desc_access(uint16_t conn_handle, uint16_t attr_handle,
 static int humidity_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
     switch (ctxt->op) {
-        case BLE_GATT_ACCESS_OP_READ_CHR:
-            // Simulate humidity reading (replace with actual sensor reading)
-            uint16_t humidity = 4500; // 45.00% humidity (in hundredths of percent)
+        case BLE_GATT_ACCESS_OP_READ_CHR: {
+            // Try to read fresh sensor data
+            float temp, hum;
+            esp_err_t err = dht_single_read(&dht_sensor, &temp, &hum);
+            
+            uint16_t humidity;
+            if (err == ESP_OK && !isnan(hum)) {
+                last_humidity = hum;
+                humidity = (uint16_t)(hum * 100); // Convert to hundredths of percent
+                ESP_LOGI(TAG, "DHT humidity read: %.2f%%", hum);
+            } else {
+                // Use last known value or default if sensor read fails
+                if (!isnan(last_humidity)) {
+                    humidity = (uint16_t)(last_humidity * 100);
+                    ESP_LOGW(TAG, "Using last known humidity: %.2f%% (sensor error: %s)", 
+                             last_humidity, esp_err_to_name(err));
+                } else {
+                    humidity = 4500; // Default 45.00% if no previous reading
+                    ESP_LOGW(TAG, "Using default humidity: 45.00%% (sensor error: %s)", 
+                             esp_err_to_name(err));
+                }
+            }
+            
             if (os_mbuf_append(ctxt->om, &humidity, sizeof(humidity)) == 0) {
                 return 0; // Success
             } else {
                 return BLE_ATT_ERR_INSUFFICIENT_RES;
             }
+        }
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
             return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
         default:
@@ -669,14 +1000,35 @@ static int humidity_desc_access(uint16_t conn_handle, uint16_t attr_handle,
 static int temperature_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                   struct ble_gatt_access_ctxt *ctxt, void *arg) {
     switch (ctxt->op) {
-        case BLE_GATT_ACCESS_OP_READ_CHR:
-            // Simulate temperature reading (replace with actual sensor reading)
-            int16_t temperature = 2350; // 23.50°C (in hundredths of degrees Celsius)
+        case BLE_GATT_ACCESS_OP_READ_CHR: {
+            // Try to read fresh sensor data
+            float temp, hum;
+            esp_err_t err = dht_single_read(&dht_sensor, &temp, &hum);
+            
+            int16_t temperature;
+            if (err == ESP_OK && !isnan(temp)) {
+                last_temperature = temp;
+                temperature = (int16_t)(temp * 100); // Convert to hundredths of degrees Celsius
+                ESP_LOGI(TAG, "DHT temperature read: %.2f°C", temp);
+            } else {
+                // Use last known value or default if sensor read fails
+                if (!isnan(last_temperature)) {
+                    temperature = (int16_t)(last_temperature * 100);
+                    ESP_LOGW(TAG, "Using last known temperature: %.2f°C (sensor error: %s)", 
+                             last_temperature, esp_err_to_name(err));
+                } else {
+                    temperature = 2350; // Default 23.50°C if no previous reading
+                    ESP_LOGW(TAG, "Using default temperature: 23.50°C (sensor error: %s)", 
+                             esp_err_to_name(err));
+                }
+            }
+            
             if (os_mbuf_append(ctxt->om, &temperature, sizeof(temperature)) == 0) {
                 return 0; // Success
             } else {
                 return BLE_ATT_ERR_INSUFFICIENT_RES;
             }
+        }
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
             return BLE_ATT_ERR_WRITE_NOT_PERMITTED; // Read-only characteristic
         default:
@@ -1453,6 +1805,107 @@ void force_advertising_restart(void)
     }
 }
 
+// Initialize output GPIOs for valves and 12V power
+void output_gpio_init() {
+    ESP_LOGI(TAG, "Initializing output GPIOs...");
+    
+    // Configure valve, power output, and status LED GPIOs
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << VALVE_1_GPIO) | (1ULL << VALVE_2_GPIO) | (1ULL << POWER_12V_GPIO) | (1ULL << STATUS_LED_GPIO),
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,   // Disable pull-down - may conflict with external hardware
+        .pull_up_en = GPIO_PULLUP_DISABLE,       // Disable pull-up as well
+    };
+    
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "GPIO config failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "GPIO configuration successful");
+    
+    // Set all outputs to low (inactive) state initially
+    ESP_LOGI(TAG, "Setting initial GPIO states to LOW...");
+    
+    ret = gpio_set_level(VALVE_1_GPIO, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set VALVE_1_GPIO initial level: %s", esp_err_to_name(ret));
+    }
+    
+    ret = gpio_set_level(VALVE_2_GPIO, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set VALVE_2_GPIO initial level: %s", esp_err_to_name(ret));
+    }
+    
+    ret = gpio_set_level(POWER_12V_GPIO, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set POWER_12V_GPIO initial level: %s", esp_err_to_name(ret));
+    }
+    
+    ret = gpio_set_level(STATUS_LED_GPIO, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STATUS_LED_GPIO initial level: %s", esp_err_to_name(ret));
+    }
+    
+    // Wait a moment for GPIOs to settle
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
+    // Verify the initial states
+    ESP_LOGI(TAG, "Initial GPIO states after configuration:");
+    ESP_LOGI(TAG, "  VALVE_1 (GPIO %d): %d", VALVE_1_GPIO, gpio_get_level(VALVE_1_GPIO));
+    ESP_LOGI(TAG, "  VALVE_2 (GPIO %d): %d", VALVE_2_GPIO, gpio_get_level(VALVE_2_GPIO));
+    ESP_LOGI(TAG, "  POWER_12V (GPIO %d): %d", POWER_12V_GPIO, gpio_get_level(POWER_12V_GPIO));
+    ESP_LOGI(TAG, "  STATUS_LED (GPIO %d): %d", STATUS_LED_GPIO, gpio_get_level(STATUS_LED_GPIO));
+    
+    // Test setting each GPIO HIGH briefly to verify they work
+    ESP_LOGI(TAG, "Testing GPIO functionality...");
+    
+    // Test VALVE_1
+    ESP_LOGI(TAG, "Testing VALVE_1 (GPIO %d):", VALVE_1_GPIO);
+    gpio_set_level(VALVE_1_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int valve1_test = gpio_get_level(VALVE_1_GPIO);
+    gpio_set_level(VALVE_1_GPIO, 0);
+    ESP_LOGI(TAG, "  VALVE_1 test HIGH result: %d %s", valve1_test, valve1_test == 1 ? "(OK)" : "(FAILED)");
+    
+    // Test VALVE_2  
+    ESP_LOGI(TAG, "Testing VALVE_2 (GPIO %d):", VALVE_2_GPIO);
+    gpio_set_level(VALVE_2_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int valve2_test = gpio_get_level(VALVE_2_GPIO);
+    gpio_set_level(VALVE_2_GPIO, 0);
+    ESP_LOGI(TAG, "  VALVE_2 test HIGH result: %d %s", valve2_test, valve2_test == 1 ? "(OK)" : "(FAILED)");
+      // Test POWER_12V
+    ESP_LOGI(TAG, "Testing POWER_12V (GPIO %d):", POWER_12V_GPIO);
+    gpio_set_level(POWER_12V_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int power12v_test = gpio_get_level(POWER_12V_GPIO);
+    gpio_set_level(POWER_12V_GPIO, 0);
+    ESP_LOGI(TAG, "  POWER_12V test HIGH result: %d %s", power12v_test, power12v_test == 1 ? "(OK)" : "(FAILED)");
+    
+    // Test STATUS_LED
+    ESP_LOGI(TAG, "Testing STATUS_LED (GPIO %d):", STATUS_LED_GPIO);
+    gpio_set_level(STATUS_LED_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    int status_led_test = gpio_get_level(STATUS_LED_GPIO);
+    gpio_set_level(STATUS_LED_GPIO, 0);
+    ESP_LOGI(TAG, "  STATUS_LED test HIGH result: %d %s", status_led_test, status_led_test == 1 ? "(OK)" : "(FAILED)");
+    
+    ESP_LOGI(TAG, "Output GPIOs initialized: VALVE_1=%d, VALVE_2=%d, POWER_12V=%d, STATUS_LED=%d", 
+             VALVE_1_GPIO, VALVE_2_GPIO, POWER_12V_GPIO, STATUS_LED_GPIO);
+             
+    // GPIO hardware information
+    ESP_LOGI(TAG, "GPIO Hardware Notes:");
+    ESP_LOGI(TAG, "  GPIO33: Output-only pin, no input capability");
+    ESP_LOGI(TAG, "  GPIO27: General purpose I/O pin");  
+    ESP_LOGI(TAG, "  GPIO14: General purpose I/O pin");
+    ESP_LOGI(TAG, "  GPIO4: Status LED pin");
+    ESP_LOGI(TAG, "  GPIO5: DHT sensor pin (moved from GPIO4 due to LED conflict)");
+    ESP_LOGI(TAG, "  If GPIOs fail to set HIGH, check for external pull-downs or hardware conflicts");
+}
+
 // The application
 void ble_app_on_sync(void)
 {
@@ -1609,6 +2062,33 @@ void app_main()
     flow_sensor_init();
     ESP_LOGI(TAG, "Flow sensor initialized on GPIO %d", FLOW_SENSOR_GPIO);
     
+    // Initialize output GPIOs for valves and 12V power
+    output_gpio_init();
+    ESP_LOGI(TAG, "Output GPIOs initialized with pull-down enabled");
+    
+    // Initialize DHT sensor
+    ESP_LOGI(TAG, "Initializing DHT sensor on GPIO %d...", DHT_SENSOR_GPIO);
+    dht_init(&dht_sensor, DHT_SENSOR_GPIO, DHT_TYPE_DHT22);
+    esp_err_t dht_err = dht_begin(&dht_sensor);
+    if (dht_err == ESP_OK) {
+        ESP_LOGI(TAG, "DHT sensor initialized successfully");
+        
+        // Perform initial sensor reading to verify functionality
+        float temp, hum;
+        esp_err_t read_err = dht_single_read(&dht_sensor, &temp, &hum);
+        if (read_err == ESP_OK) {
+            last_temperature = temp;
+            last_humidity = hum;
+            ESP_LOGI(TAG, "Initial DHT reading: Temperature=%.2f°C, Humidity=%.2f%%", temp, hum);
+        } else {
+            ESP_LOGW(TAG, "Initial DHT reading failed: %s", esp_err_to_name(read_err));
+            ESP_LOGW(TAG, "DHT sensor may not be connected or may need warming up");
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize DHT sensor: %s", esp_err_to_name(dht_err));
+        ESP_LOGW(TAG, "Temperature and humidity readings will use default values");
+    }
+    
     // Initialize BLE stack
     ESP_LOGI(TAG, "Initializing BLE stack...");
     // esp_nimble_hci_and_controller_init();   // Initialize ESP controller
@@ -1714,7 +2194,7 @@ void app_main()
     ESP_LOGI(TAG, "BLE Services Available:");
     ESP_LOGI(TAG, "- Automation IO Service (UUID: 0x1815)");
     ESP_LOGI(TAG, "  * User Control Point characteristic UUID: 0xFF01 (write commands)");
-    ESP_LOGI(TAG, "    Commands: VALVE 1/2 ON/OFF, 12V ON/OFF, RESET FLOW, STATUS, RESTART ADV, OTA INFO, BLE STATUS");
+    ESP_LOGI(TAG, "    Commands: VALVE 1/2 ON/OFF, 12V ON/OFF, RESET FLOW, STATUS, RESTART ADV, OTA INFO, BLE STATUS, TEST GPIO");
     ESP_LOGI(TAG, "  * Status characteristic UUID: 0x2B3C (read status)");
     ESP_LOGI(TAG, "  * Volume Flow characteristic UUID: 0x2B1B (read flow data in L/min)");
     ESP_LOGI(TAG, "  * Battery Level characteristic UUID: 0x2A19 (read battery level)");
