@@ -1,0 +1,18 @@
+title: GRSVC1 Web Interface
+description: Device management tools for GRSVC1 multi-function IoT device
+theme: minima
+
+# GitHub Pages settings
+plugins:
+  - jekyll-default-layout
+
+# Exclude files from processing
+exclude:
+  - README.md
+
+# Default layout for HTML files
+defaults:
+  - scope:
+      path: "*.html"
+    values:
+      layout: none
