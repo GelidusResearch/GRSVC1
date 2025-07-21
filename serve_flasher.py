@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# This script sets up a simple HTTP server to serve files for the ESP Web Tools.
+# its primary purpose is to serve the files while developing.
 """
 Simple HTTP server for serving ESP Web Tools files with proper CORS headers.
 Usage: python serve_flasher.py [port]
@@ -34,24 +36,24 @@ class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    
+
     # Change to src directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     src_dir = os.path.join(script_dir, 'src')
-    
+
     if os.path.exists(src_dir):
         os.chdir(src_dir)
         print(f"Serving from: {src_dir}")
     else:
         print(f"Warning: 'src' directory not found, serving from: {os.getcwd()}")
-    
+
     with socketserver.TCPServer(("", port), CORSHTTPRequestHandler) as httpd:
         print(f"🚀 ESP Web Tools Server")
         print(f"📂 Directory: {os.getcwd()}")
         print(f"🌐 Server: http://localhost:{port}")
         print(f"⚡ ESP Web Tools: http://localhost:{port}/usb-web-installer.html")
         print(f"🛑 Press Ctrl+C to stop")
-        
+
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

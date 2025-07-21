@@ -1,0 +1,11 @@
+// GRSVC1 OTA Firmware Binary Placeholder
+// Firmware: grsvc1-r1-v1.0.0.ota.bin
+// Hardware: GRSVC V1 (Revision 1)
+// Version: 1.0.0
+// Type: OTA update binary for wireless updates
+//
+// Replace this placeholder with your actual built OTA firmware binary
+// Build command: pio run
+// Source: .pio/build/esp32dev/firmware.bin (copy and rename for OTA)
+//
+// This file is used for wireless firmware updates via BLE interface

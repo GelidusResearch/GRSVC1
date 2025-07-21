@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRSVC1 - USB Flash Tool</title>
+    <script
+        type="module"
+        src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"
+    ></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .nav-back {
+            color: rgba(255, 255, 255, 0.9);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            transition: background 0.2s ease;
+        }
+
+        .nav-back:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+
+        .version-selector {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .version-selector h3 {
+            color: #374151;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .version-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .version-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .version-item:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .version-item.selected {
+            border-color: #667eea;
+            background: #eff6ff;
+        }
+
+        .version-radio {
+            accent-color: #667eea;
+        }
+
+        .version-info {
+            flex: 1;
+        }
+
+        .version-title {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 4px;
+        }
+
+        .version-details {
+            font-size: 0.9em;
+            color: #6b7280;
+        }
+
+        .version-badge {
+            background: #10b981;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .version-badge.beta {
+            background: #f59e0b;
+        }
+
+        .version-badge.stable {
+            background: #10b981;
+        }
+
+        .install-section {
+            margin: 30px 0;
+        }
+
+        .install-section h2 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .install-section p {
+            color: #6b7280;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        esp-web-install-button {
+            --esp-tools-button-color: #667eea;
+            --esp-tools-button-text-color: white;
+            --esp-tools-button-border-radius: 8px;
+            display: block;
+            margin: 20px auto;
+            font-size: 1.1em;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .status-info {
+            background: #eff6ff;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        .status-error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .status-success {
+            background: #f0fdf4;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .status-warning {
+            background: #fffbeb;
+            color: #92400e;
+            border: 1px solid #fbbf24;
+        }
+
+        .debug-info {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 0.9em;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .requirements {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .requirements h3 {
+            color: #374151;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .requirements ul {
+            margin-left: 20px;
+            color: #4b5563;
+        }
+
+        .requirements li {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="index.html" class="nav-back">← Back to Main Menu</a>
+        
+        <div class="header">
+            <h1>🔌 USB Flash Tool</h1>
+            <p>Flash GRSVC1 firmware via USB connection</p>
+        </div>
+
+        <div class="card">
+            <div class="version-selector">
+                <h3>📦 Select Firmware Version</h3>
+                <div id="version-list" class="version-list">
+                    <div class="status status-info">Loading available firmware versions...</div>
+                </div>
+            </div>
+
+            <div class="requirements">
+                <h3>📋 Requirements</h3>
+                <ul>
+                    <li><strong>Browser:</strong> Chrome 89+, Edge 89+, or Opera 75+ (desktop only)</li>
+                    <li><strong>Connection:</strong> USB cable connected to ESP32 device</li>
+                    <li><strong>Permissions:</strong> Allow serial port access when prompted</li>
+                    <li><strong>Driver:</strong> ESP32 USB driver may be required on some systems</li>
+                </ul>
+            </div>
+
+            <div class="install-section">
+                <h2 id="install-title">📦 Select a Firmware Version</h2>
+                <p id="install-description">Please select a firmware version above to continue with installation.</p>
+                
+                <div id="browser-warning" class="status status-error hidden">
+                    <strong>❌ Unsupported Browser</strong><br>
+                    ESP Web Tools requires Chrome 89+, Edge 89+, or Opera 75+ on desktop.<br>
+                    Mobile browsers are not supported for USB serial communication.
+                </div>
+                
+                <div id="https-warning" class="status status-warning hidden">
+                    <strong>⚠️ HTTPS Required</strong><br>
+                    Web Serial API requires a secure connection. Please access this page via HTTPS.
+                </div>
+                
+                <div id="esp-install-container" class="hidden">
+                    <esp-web-install-button id="esp-install-button">
+                        <button slot="activate">⚡ Install Selected Firmware</button>
+                        <span slot="unsupported">❌ Your browser doesn't support Web Serial API</span>
+                        <span slot="not-allowed">⚠️ HTTPS required for Web Serial</span>
+                    </esp-web-install-button>
+                </div>
+
+                <div id="status" class="status status-info">
+                    🔄 Initializing firmware selection...
+                </div>
+            </div>
+
+            <div id="debug" class="debug-info hidden">
+                <strong>Debug Information:</strong><br>
+                <div id="debug-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const debugEl = document.getElementById('debug');
+        const debugContent = document.getElementById('debug-content');
+        const versionList = document.getElementById('version-list');
+        const installTitle = document.getElementById('install-title');
+        const installDescription = document.getElementById('install-description');
+        const espInstallContainer = document.getElementById('esp-install-container');
+        const espInstallButton = document.getElementById('esp-install-button');
+
+        let selectedVersion = null;
+        let availableVersions = [];
+
+        function updateStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status status-${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            debugContent.innerHTML += `[${timestamp}] ${message}<br>`;
+            debugEl.classList.remove('hidden');
+            debugEl.scrollTop = debugEl.scrollHeight;
+            
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function selectVersion(version) {
+            selectedVersion = version;
+            
+            // Update UI
+            document.querySelectorAll('.version-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            const selectedItem = document.querySelector(`[data-version="${version.version}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('selected');
+                selectedItem.querySelector('input[type="radio"]').checked = true;
+            }
+
+            // Update install section
+            installTitle.textContent = `📦 Install GRSVC1 v${version.version}`;
+            installDescription.textContent = `${version.description || 'Selected firmware version'} - Hardware: ${version.hardware}`;
+            
+            // Update ESP Web Tools manifest
+            const manifestPath = `./firmware/${version.path}/manifest.json`;
+            espInstallButton.setAttribute('manifest', manifestPath);
+            
+            // Show install button
+            espInstallContainer.classList.remove('hidden');
+            
+            updateStatus(`Selected firmware v${version.version} for ${version.hardware}`, 'success');
+            updateStatus(`Manifest: ${manifestPath}`, 'info');
+        }
+
+        function createVersionItem(version) {
+            const isLatest = version.version === availableVersions[0]?.version;
+            
+            const item = document.createElement('div');
+            item.className = 'version-item';
+            item.setAttribute('data-version', version.version);
+            
+            item.innerHTML = `
+                <input type="radio" name="firmware-version" value="${version.version}" class="version-radio">
+                <div class="version-info">
+                    <div class="version-title">
+                        GRSVC1 v${version.version} (${version.hardware})
+                        ${isLatest ? '<span class="version-badge stable">Latest</span>' : ''}
+                    </div>
+                    <div class="version-details">
+                        ${version.description || 'Firmware version ' + version.version} • Built: ${version.build_date || 'Unknown'}
+                    </div>
+                </div>
+            `;
+            
+            item.addEventListener('click', () => selectVersion(version));
+            
+            return item;
+        }
+
+        async function loadFirmwareVersions() {
+            try {
+                updateStatus('Loading firmware versions...', 'info');
+                
+                const response = await fetch('./firmware/versions.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                availableVersions = data.available_versions || [];
+                
+                if (availableVersions.length === 0) {
+                    throw new Error('No firmware versions available');
+                }
+                
+                // Clear loading message
+                versionList.innerHTML = '';
+                
+                // Create version items
+                availableVersions.forEach(version => {
+                    const item = createVersionItem(version);
+                    versionList.appendChild(item);
+                });
+                
+                updateStatus(`Found ${availableVersions.length} firmware version(s)`, 'success');
+                
+                // Auto-select latest version
+                if (data.latest_version) {
+                    const latestVersion = availableVersions.find(v => v.version === data.latest_version);
+                    if (latestVersion) {
+                        selectVersion(latestVersion);
+                    }
+                }
+                
+            } catch (error) {
+                updateStatus(`Failed to load firmware versions: ${error.message}`, 'error');
+                versionList.innerHTML = `
+                    <div class="status status-error">
+                        <strong>❌ No firmware versions found</strong><br>
+                        Please ensure firmware has been built and prepared using <code>prepare_firmware.bat</code>
+                    </div>
+                `;
+            }
+        }
+
+        function checkBrowserCompatibility() {
+            if (!('serial' in navigator)) {
+                document.getElementById('browser-warning').classList.remove('hidden');
+                updateStatus('❌ Web Serial API not supported in this browser', 'error');
+                return false;
+            }
+
+            if (window.location.protocol !== 'https:' && 
+                !window.location.hostname.includes('localhost') && 
+                !window.location.hostname.includes('127.0.0.1')) {
+                document.getElementById('https-warning').classList.remove('hidden');
+                updateStatus('⚠️ HTTPS connection recommended for Web Serial API', 'warning');
+            }
+
+            return true;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('Page loaded, checking browser compatibility...');
+            
+            if (!checkBrowserCompatibility()) {
+                return;
+            }
+
+            updateStatus('✅ Browser compatibility check passed', 'success');
+            
+            // Load available firmware versions
+            loadFirmwareVersions();
+            
+            // Add ESP Web Tools event listeners
+            setTimeout(() => {
+                if (espInstallButton) {
+                    espInstallButton.addEventListener('state-changed', (event) => {
+                        const state = event.detail;
+                        updateStatus(`ESP Web Tools state: ${state}`, 'info');
+                    });
+
+                    espInstallButton.addEventListener('error', (event) => {
+                        const error = event.detail;
+                        updateStatus(`ESP Web Tools error: ${error}`, 'error');
+                    });
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

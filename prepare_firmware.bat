@@ -1,5 +1,5 @@
 @echo off
-echo 🔧 GRSVC1 Firmware Preparation for OTA and USB Deployment
+echo GRSVC1 Firmware Preparation for OTA and USB Deployment
 echo.
 echo This script prepares firmware binaries for both OTA and USB deployment
 echo.
@@ -12,7 +12,7 @@ if not exist "platformio.ini" (
     exit /b 1
 )
 
-echo ✅ Found PlatformIO project
+echo Found PlatformIO project
 echo.
 
 REM Get version from user or use default
@@ -28,8 +28,8 @@ echo 📋 Building firmware version %FIRMWARE_VERSION% for hardware %HARDWARE_RE
 echo.
 
 REM Create versioned firmware directory structure
-set FIRMWARE_DIR=web\firmware\%FIRMWARE_VERSION%
-if not exist "web\firmware" mkdir "web\firmware"
+set FIRMWARE_DIR=docs\firmware\%FIRMWARE_VERSION%
+if not exist "docs\firmware" mkdir "docs\firmware"
 if not exist "%FIRMWARE_DIR%" mkdir "%FIRMWARE_DIR%"
 
 echo 📋 Firmware Preparation Steps:
@@ -58,15 +58,15 @@ echo.
 echo 3️⃣ Checking generated firmware files...
 if exist ".pio\build\esp32dev\firmware.bin" (
     echo ✅ Main firmware binary found
-    
+
     REM Copy and rename for USB flashing
     copy ".pio\build\esp32dev\firmware.bin" "%FIRMWARE_DIR%\grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.bin"
     echo ✅ USB firmware: grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.bin
-    
+
     REM Copy and rename for OTA updates
     copy ".pio\build\esp32dev\firmware.bin" "%FIRMWARE_DIR%\grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.ota.bin"
     echo ✅ OTA firmware: grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.ota.bin
-    
+
 ) else (
     echo ❌ firmware.bin not found in build output
     pause
@@ -123,21 +123,21 @@ echo.
 echo 7️⃣ Updating main firmware list...
 REM Create or update the main firmware versions list
 echo Creating firmware versions index...
-> web\firmware\versions.json echo {
->> web\firmware\versions.json echo   "available_versions": [
->> web\firmware\versions.json echo     {
->> web\firmware\versions.json echo       "version": "%FIRMWARE_VERSION%",
->> web\firmware\versions.json echo       "hardware": "%HARDWARE_REV%",
->> web\firmware\versions.json echo       "build_date": "%date% %time%",
->> web\firmware\versions.json echo       "path": "%FIRMWARE_VERSION%",
->> web\firmware\versions.json echo       "usb_firmware": "grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.bin",
->> web\firmware\versions.json echo       "ota_firmware": "grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.ota.bin",
->> web\firmware\versions.json echo       "description": "Latest firmware with OTA support"
->> web\firmware\versions.json echo     }
->> web\firmware\versions.json echo   ],
->> web\firmware\versions.json echo   "latest_version": "%FIRMWARE_VERSION%",
->> web\firmware\versions.json echo   "default_hardware": "%HARDWARE_REV%"
->> web\firmware\versions.json echo }
+> docs\firmware\versions.json echo {
+>> docs\firmware\versions.json echo   "available_versions": [
+>> docs\firmware\versions.json echo     {
+>> docs\firmware\versions.json echo       "version": "%FIRMWARE_VERSION%",
+>> docs\firmware\versions.json echo       "hardware": "%HARDWARE_REV%",
+>> docs\firmware\versions.json echo       "build_date": "%date% %time%",
+>> docs\firmware\versions.json echo       "path": "%FIRMWARE_VERSION%",
+>> docs\firmware\versions.json echo       "usb_firmware": "grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.bin",
+>> docs\firmware\versions.json echo       "ota_firmware": "grsvc1-%HARDWARE_REV%-v%FIRMWARE_VERSION%.ota.bin",
+>> docs\firmware\versions.json echo       "description": "Latest firmware with OTA support"
+>> docs\firmware\versions.json echo     }
+>> docs\firmware\versions.json echo   ],
+>> docs\firmware\versions.json echo   "latest_version": "%FIRMWARE_VERSION%",
+>> docs\firmware\versions.json echo   "default_hardware": "%HARDWARE_REV%"
+>> docs\firmware\versions.json echo }
 echo ✅ Firmware versions index updated
 
 echo.

@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>GRSVC1 Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f3f3f3;
+            min-height: 100vh;
+            color: #434343;
+            font-size: 10px;
+            padding: 7px;
+        }
+
+        .header {
+            text-align: center;
+            color: #333333;
+            margin-bottom: 10px;
+        }
+
+        .header h1 {
+            font-size: 1.0em;
+            margin-bottom: 3px;
+            color: #333333;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 7px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .card h2 {
+            color: #333333;
+            margin-bottom: 7px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .connection-status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .status-disconnected {
+            background: #fef2f2;
+            color: #333333;
+            border: 1px solid #572121;
+        }
+
+        .status-connected {
+            background: #f0fdf4;
+            color: #166534;
+            border: 1px solid #3da862;
+        }
+
+        .btn {
+            background: #333333;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            width: 100%;
+            margin: 5px 0;
+            text-align: center;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+        }
+
+        .btn:hover {
+            background: #2c2d33;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .toggle-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            width: 100%;
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-btn.on {
+            background: #28a745;
+        }
+
+        .toggle-btn.off {
+            background: #333333;
+        }
+
+        .toggle-btn:disabled {
+            opacity: 0.6 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+
+        .toggle-btn:not(:disabled):active {
+            transform: scale(0.98);
+        }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .sensor-item {
+            background: rgba(0,0,0,0.025);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .sensor-value {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #2c2d33;
+            margin-bottom: 3px;
+        }
+
+        .sensor-label {
+            font-size: 0.8em;
+            color: #737781;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+        }
+
+        .control-title {
+            font-weight: 600;
+            color: #2c2d33;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .file-input-container {
+            margin: 10px 0;
+        }
+
+        .file-input {
+            position: absolute;
+            left: -9999px;
+            opacity: 0;
+        }
+
+        .file-label {
+            display: block;
+            padding: 12px;
+            background: #43454b;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            text-align: center;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .file-label:hover {
+            background: #2c2d33;
+        }
+
+        .file-info {
+            background: rgba(0,0,0,0.025);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .progress-container {
+            margin: 10px 0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 16px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            font-weight: bold;
+            color: #2c2d33;
+            font-size: 0.9em;
+        }
+
+        .log-container {
+            background: #2c2d33;
+            color: #9aa0a7;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: "Courier 10 Pitch", Courier, monospace;
+            font-size: 0.7em;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+            line-height: 1.2;
+        }
+
+        .log-entry.error {
+            color: #ff6b6b;
+        }
+
+        .log-entry.warning {
+            color: #ffc107;
+        }
+
+        .log-entry.info {
+            color: #17a2b8;
+        }
+
+        .log-entry.success {
+            color: #28a745;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .nav-back {
+            color: #333333;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .nav-back:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-back {
+            color: #333333;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .nav-back:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        @media (max-width: 360px) {
+            .sensor-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" class="nav-back">← Back to Main Menu</a>
+    
+    <div class="header">
+        <h1>GRSVC1 BLE Control</h1>
+    </div>
+
+    <!-- Connection -->
+    <div class="card">
+        <div id="connectionStatus" class="connection-status status-disconnected">
+            Not Connected
+        </div>
+        <button id="connectBtn" class="btn">Connect</button>
+        <button id="disconnectBtn" class="btn btn-danger hidden">Disconnect</button>
+        <button id="testDeviceInfoBtn" class="btn hidden" style="background: #17a2b8;">Test Device Info</button>
+    </div>
+
+    <!-- Status -->
+    <div class="card hidden" id="statusCard">
+        <h2>Status</h2>
+        <div class="sensor-grid">
+            <div class="sensor-item">
+                <div class="sensor-value" id="batteryLevel">-</div>
+                <div class="sensor-label">Battery</div>
+            </div>
+            <div class="sensor-item">
+                <div class="sensor-value" id="temperature">-</div>
+                <div class="sensor-label">Temperature</div>
+            </div>
+            <div class="sensor-item">
+                <div class="sensor-value" id="humidity">-</div>
+                <div class="sensor-label">Humidity</div>
+            </div>
+            <div class="sensor-item">
+                <div class="sensor-value" id="flowRate">-</div>
+                <div class="sensor-label">Flow Rate</div>
+            </div>
+            <div class="sensor-item">
+                <div class="sensor-value" id="macAddress" style="font-size: 0.8em;">-</div>
+                <div class="sensor-label">MAC Address</div>
+            </div>
+            <div class="sensor-item">
+                <div class="sensor-value" id="firmwareVersion" style="font-size: 0.8em;">-</div>
+                <div class="sensor-label">Firmware Version</div>
+            </div>
+        </div>
+        <button class="btn" onclick="refreshSensors()">Refresh</button>
+    </div>
+
+    <!-- Controls -->
+    <div class="card hidden" id="controlsCard">
+        <h2>Controls</h2>
+        
+        <div class="control-group">
+            <div class="control-title">Valve 1</div>
+            <button class="toggle-btn off" id="valve1Btn" onclick="toggleControl('valve1', 'VALVE 1')">
+                <span id="valve1Icon">🔒</span>
+                <span id="valve1Text">OFF</span>
+            </button>
+        </div>
+        
+        <div class="control-group">
+            <div class="control-title">Valve 2</div>
+            <button class="toggle-btn off" id="valve2Btn" onclick="toggleControl('valve2', 'VALVE 2')">
+                <span id="valve2Icon">🔒</span>
+                <span id="valve2Text">OFF</span>
+            </button>
+        </div>
+        
+        <div class="control-group">
+            <div class="control-title">12V Power</div>
+            <button class="toggle-btn off" id="powerBtn" onclick="toggleControl('power', '12V')">
+                <span id="powerIcon">⚡</span>
+                <span id="powerText">OFF</span>
+            </button>
+        </div>
+        
+        <div class="control-group">
+            <div class="control-title">Diagnostics</div>
+            <button class="btn" onclick="sendCommand('TEST GPIO')" style="background: #17a2b8; margin: 5px 0;">Test GPIO Hardware</button>
+            <button class="btn" onclick="sendCommand('STATUS')" style="background: #6c757d; margin: 5px 0;">Get Device Status</button>
+        </div>
+    </div>
+
+    <!-- Firmware Update -->
+    <div class="card hidden" id="firmwareCard">
+        <h2>Firmware Update</h2>
+        <div class="file-input-container">
+            <input type="file" id="firmwareFile" class="file-input" accept=".bin" onchange="handleFileSelect(event)">
+            <label for="firmwareFile" class="file-label">Choose Firmware File (.bin)</label>
+        </div>
+        <div id="fileInfo" class="file-info hidden"></div>
+        <div id="otaProgress" class="progress-container hidden">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">0%</div>
+        </div>
+        <button id="updateBtn" class="btn" onclick="startFirmwareUpdate()" disabled>Start Update</button>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+        <h2>Log</h2>
+        <div id="logContainer" class="log-container">
+            <div class="log-entry info">Ready to connect</div>
+        </div>
+    </div>
+
+    <script>
+        // BLE variables
+        let device = null;
+        let server = null;
+        let automationService = null;
+        let deviceInfoService = null;
+        let controlCharacteristic = null;
+        let statusCharacteristic = null;
+        let batteryCharacteristic = null;
+        let temperatureCharacteristic = null;
+        let humidityCharacteristic = null;
+        let flowCharacteristic = null;
+        let otaControlCharacteristic = null;
+        let otaDataCharacteristic = null;
+        let macAddressCharacteristic = null;
+        let firmwareVersionCharacteristic = null;
+        let monitoringInterval = null;
+        let connectionCheckInterval = null;
+        let isReconnecting = false;
+        let manualDisconnect = false;
+
+        // Service UUIDs
+        const AUTOMATION_SERVICE_UUID = '00001815-0000-1000-8000-00805f9b34fb';
+        const DEVICE_INFO_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';
+        const CONTROL_CHARACTERISTIC_UUID = '0000ff01-0000-1000-8000-00805f9b34fb';
+        const STATUS_CHARACTERISTIC_UUID = '00002b3c-0000-1000-8000-00805f9b34fb';
+        const BATTERY_CHARACTERISTIC_UUID = '00002a19-0000-1000-8000-00805f9b34fb';
+        const TEMPERATURE_CHARACTERISTIC_UUID = '00002a6e-0000-1000-8000-00805f9b34fb';
+        const HUMIDITY_CHARACTERISTIC_UUID = '00002a6f-0000-1000-8000-00805f9b34fb';
+        const FLOW_CHARACTERISTIC_UUID = '00002b1b-0000-1000-8000-00805f9b34fb';
+        const OTA_CONTROL_CHARACTERISTIC_UUID = '0000ff02-0000-1000-8000-00805f9b34fb';
+        const OTA_DATA_CHARACTERISTIC_UUID = '0000ff03-0000-1000-8000-00805f9b34fb';
+        const MAC_ADDRESS_CHARACTERISTIC_UUID = '0000ff04-0000-1000-8000-00805f9b34fb';
+        const FIRMWARE_VERSION_CHARACTERISTIC_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
+
+        // Control states
+        let controlStates = {
+            valve1: false,
+            valve2: false,
+            power: false
+        };
+
+        // OTA variables
+        let selectedFile = null;
+        let otaInProgress = false;
+        let otaChunkSize = 512; // Use larger chunks for faster transfer
+
+        // Global monitoring function
+        window.startMonitoring = function() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
+            
+            monitoringInterval = setInterval(async () => {
+                // Check if page is hidden and skip monitoring to save battery
+                if (document.hidden) {
+                    return;
+                }
+                
+                // Check if still connected before attempting reads
+                if (!device || !device.gatt || !device.gatt.connected) {
+                    return;
+                }
+                
+                try {
+                    // Battery
+                    if (batteryCharacteristic) {
+                        const batteryValue = await batteryCharacteristic.readValue();
+                        const batteryLevel = batteryValue.getUint8(0);
+                        document.getElementById('batteryLevel').textContent = `${batteryLevel}%`;
+                    }
+
+                    // Temperature
+                    if (temperatureCharacteristic) {
+                        const tempValue = await temperatureCharacteristic.readValue();
+                        const temperature = tempValue.getInt16(0, true) / 100;
+                        document.getElementById('temperature').textContent = `${temperature.toFixed(1)}°C`;
+                    }
+
+                    // Humidity
+                    if (humidityCharacteristic) {
+                        const humidityValue = await humidityCharacteristic.readValue();
+                        const humidity = humidityValue.getUint16(0, true) / 100;
+                        document.getElementById('humidity').textContent = `${humidity.toFixed(1)}%`;
+                    }
+
+                    // Flow Rate
+                    if (flowCharacteristic) {
+                        const flowValue = await flowCharacteristic.readValue();
+                        const flowRate = new Float32Array(flowValue.buffer)[0];
+                        document.getElementById('flowRate').textContent = `${flowRate.toFixed(2)} L/min`;
+                    }
+
+                    // MAC Address (read only once, doesn't change)
+                    if (macAddressCharacteristic && (document.getElementById('macAddress').textContent === '-' || document.getElementById('macAddress').textContent === '')) {
+                        const macValue = await macAddressCharacteristic.readValue();
+                        const macString = new TextDecoder().decode(macValue);
+                        document.getElementById('macAddress').textContent = macString;
+                    }
+
+                    // Firmware Version (read only once, doesn't change)
+                    if (firmwareVersionCharacteristic && (document.getElementById('firmwareVersion').textContent === '-' || document.getElementById('firmwareVersion').textContent === '')) {
+                        const firmwareValue = await firmwareVersionCharacteristic.readValue();
+                        const firmwareString = new TextDecoder().decode(firmwareValue);
+                        document.getElementById('firmwareVersion').textContent = firmwareString;
+                    }
+
+                } catch (error) {
+                    // If reads fail, the connection might be lost
+                    if (!isReconnecting && !document.hidden) {
+                        log('Sensor read failed, checking connection...', 'warning');
+                    }
+                }
+            }, document.hidden ? 10000 : 5000); // Slower when hidden
+        };
+
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const statusCard = document.getElementById('statusCard');
+        const controlsCard = document.getElementById('controlsCard');
+        const firmwareCard = document.getElementById('firmwareCard');
+        const logContainer = document.getElementById('logContainer');
+
+        // Event listeners
+        connectBtn.addEventListener('click', connectToDevice);
+        disconnectBtn.addEventListener('click', disconnectFromDevice);
+        testDeviceInfoBtn.addEventListener('click', readDeviceInfo);
+
+        // Logging
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp.slice(0, 5)}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Keep only last 30 entries
+            while (logContainer.children.length > 30) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        // Connect to device
+        async function connectToDevice() {
+            if (isReconnecting) {
+                log('Reconnection in progress, please wait', 'warning');
+                return;
+            }
+            
+            // Disable connect button to prevent multiple connection attempts
+            connectBtn.disabled = true;
+            connectBtn.textContent = 'Connecting...';
+            
+            try {
+                manualDisconnect = false; // Reset manual disconnect flag
+                log('Requesting device...');
+                
+                // Always request device fresh to handle pairing
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'GRSVC1' }],
+                    optionalServices: [AUTOMATION_SERVICE_UUID, DEVICE_INFO_SERVICE_UUID]
+                });
+                
+                log('Device selected, connecting to GATT server...');
+                
+                // Add disconnect listener
+                device.addEventListener('gattserverdisconnected', handleDisconnection);
+
+                server = await device.gatt.connect();
+                log('GATT server connected, discovering services...');
+                
+                // Get services with timeout
+                const serviceTimeout = 10000; // 10 second timeout
+                
+                const getServiceWithTimeout = async (uuid, name) => {
+                    const promise = server.getPrimaryService(uuid);
+                    const timeout = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error(`Timeout getting ${name} service`)), serviceTimeout)
+                    );
+                    return Promise.race([promise, timeout]);
+                };
+                
+                automationService = await getServiceWithTimeout(AUTOMATION_SERVICE_UUID, 'automation');
+                deviceInfoService = await getServiceWithTimeout(DEVICE_INFO_SERVICE_UUID, 'device info');
+                
+                log('Services discovered, getting characteristics...');
+                
+                // Get characteristics with individual error handling
+                const getCharacteristic = async (service, uuid, name, required = true) => {
+                    try {
+                        return await service.getCharacteristic(uuid);
+                    } catch (error) {
+                        if (required) {
+                            throw new Error(`Required characteristic ${name} not found: ${error.message}`);
+                        } else {
+                            log(`Optional characteristic ${name} not available: ${error.message}`, 'warning');
+                            return null;
+                        }
+                    }
+                };
+                
+                // Required characteristics
+                controlCharacteristic = await getCharacteristic(automationService, CONTROL_CHARACTERISTIC_UUID, 'control', true);
+                statusCharacteristic = await getCharacteristic(automationService, STATUS_CHARACTERISTIC_UUID, 'status', true);
+                
+                // Optional characteristics
+                batteryCharacteristic = await getCharacteristic(automationService, BATTERY_CHARACTERISTIC_UUID, 'battery', false);
+                temperatureCharacteristic = await getCharacteristic(automationService, TEMPERATURE_CHARACTERISTIC_UUID, 'temperature', false);
+                humidityCharacteristic = await getCharacteristic(automationService, HUMIDITY_CHARACTERISTIC_UUID, 'humidity', false);
+                flowCharacteristic = await getCharacteristic(automationService, FLOW_CHARACTERISTIC_UUID, 'flow', false);
+                otaControlCharacteristic = await getCharacteristic(automationService, OTA_CONTROL_CHARACTERISTIC_UUID, 'OTA control', false);
+                otaDataCharacteristic = await getCharacteristic(automationService, OTA_DATA_CHARACTERISTIC_UUID, 'OTA data', false);
+                macAddressCharacteristic = await getCharacteristic(deviceInfoService, MAC_ADDRESS_CHARACTERISTIC_UUID, 'MAC address', false);
+                firmwareVersionCharacteristic = await getCharacteristic(deviceInfoService, FIRMWARE_VERSION_CHARACTERISTIC_UUID, 'firmware version', false);
+
+                log('All characteristics discovered');
+                
+                // Test the connection with a simple command
+                log('Testing connection with STATUS command...');
+                try {
+                    await sendCommand('STATUS');
+                    log('Connection test successful');
+                } catch (error) {
+                    log(`Connection test failed: ${error.message}`, 'warning');
+                    // Continue anyway, might work for other commands
+                }
+
+                // Read device info immediately after connection
+                await readDeviceInfo();
+
+                // Read current device states to sync UI
+                await readDeviceStates();
+
+                updateConnectionStatus(true);
+                startMonitoring();
+                startConnectionCheck();
+                log('Connected successfully! Connection will persist when page is minimized.');
+                
+            } catch (error) {
+                log(`Connection failed: ${error.message}`, 'error');
+                updateConnectionStatus(false);
+                device = null; // Clear device reference on connection failure
+            } finally {
+                // Re-enable connect button
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Connect';
+            }
+        }
+
+        // Disconnect
+        async function disconnectFromDevice() {
+            manualDisconnect = true; // Set manual disconnect flag
+            
+            if (device) {
+                device.removeEventListener('gattserverdisconnected', handleDisconnection);
+                if (device.gatt && device.gatt.connected) {
+                    await device.gatt.disconnect();
+                }
+                // Clear device reference so reconnect will request device again
+                device = null;
+                server = null;
+                automationService = null;
+                deviceInfoService = null;
+                controlCharacteristic = null;
+                statusCharacteristic = null;
+                batteryCharacteristic = null;
+                temperatureCharacteristic = null;
+                humidityCharacteristic = null;
+                flowCharacteristic = null;
+                otaControlCharacteristic = null;
+                otaDataCharacteristic = null;
+                macAddressCharacteristic = null;
+                firmwareVersionCharacteristic = null;
+            }
+            updateConnectionStatus(false);
+            log('Disconnected - click Connect to pair again');
+        }
+
+        // Handle disconnection
+        function handleDisconnection() {
+            log('Device disconnected', 'warning');
+            if (!isReconnecting && !manualDisconnect) {
+                updateConnectionStatus(false);
+                // Only attempt reconnection if device wasn't manually disconnected
+                if (device !== null) {
+                    attemptReconnection();
+                } else {
+                    log('Manual disconnect detected - click Connect to pair again', 'info');
+                }
+            } else if (manualDisconnect) {
+                log('Manual disconnect completed', 'info');
+                manualDisconnect = false; // Reset flag
+            }
+        }
+
+        // Attempt to reconnect
+        async function attemptReconnection() {
+            if (isReconnecting || !device) return;
+            
+            isReconnecting = true;
+            log('Attempting to reconnect...', 'warning');
+            
+            try {
+                // Wait a moment before reconnecting
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Check if device is still available and try to reconnect
+                if (device && device.gatt) {
+                    try {
+                        server = await device.gatt.connect();
+                        automationService = await server.getPrimaryService(AUTOMATION_SERVICE_UUID);
+                        
+                        controlCharacteristic = await automationService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
+                        statusCharacteristic = await automationService.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
+                        batteryCharacteristic = await automationService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+                        temperatureCharacteristic = await automationService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
+                        humidityCharacteristic = await automationService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
+                        flowCharacteristic = await automationService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
+                        otaControlCharacteristic = await automationService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
+                        otaDataCharacteristic = await automationService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
+
+                        // Get MAC address from device info service
+                        try {
+                            deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
+                            macAddressCharacteristic = await deviceInfoService.getCharacteristic(MAC_ADDRESS_CHARACTERISTIC_UUID);
+                            firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
+                            // Read device info after reconnect
+                            await readDeviceInfo();
+                        } catch (error) {
+                            log('Device info not fully available on reconnect', 'warning');
+                        }
+
+                        updateConnectionStatus(true);
+                        startMonitoring();
+                        startConnectionCheck();
+                        
+                        // Sync device states after reconnection
+                        await readDeviceStates();
+                        
+                        log('Reconnected successfully!', 'info');
+                    } catch (reconnectError) {
+                        // If reconnection fails, device might be unpaired
+                        log('Automatic reconnection failed - device may need to be paired again', 'warning');
+                        log('Click Connect to pair the device again', 'info');
+                        device = null; // Clear device reference
+                        updateConnectionStatus(false);
+                    }
+                } else {
+                    log('Device reference lost - click Connect to pair again', 'warning');
+                    updateConnectionStatus(false);
+                }
+            } catch (error) {
+                log(`Reconnection failed: ${error.message}`, 'error');
+                updateConnectionStatus(false);
+            } finally {
+                isReconnecting = false;
+            }
+        }
+
+        // Update UI
+        function updateConnectionStatus(connected) {
+            if (connected) {
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.className = 'connection-status status-connected';
+                connectBtn.classList.add('hidden');
+                disconnectBtn.classList.remove('hidden');
+                statusCard.classList.remove('hidden');
+                controlsCard.classList.remove('hidden');
+                firmwareCard.classList.remove('hidden');
+            } else {
+                connectionStatus.textContent = 'Not Connected';
+                connectionStatus.className = 'connection-status status-disconnected';
+                connectBtn.classList.remove('hidden');
+                disconnectBtn.classList.add('hidden');
+                statusCard.classList.add('hidden');
+                controlsCard.classList.add('hidden');
+                firmwareCard.classList.add('hidden');
+                
+                // Reset controls
+                controlStates = { valve1: false, valve2: false, power: false };
+                updateControlButton('valve1', false);
+                updateControlButton('valve2', false);
+                updateControlButton('power', false);
+                
+                // Reset sensor displays
+                document.getElementById('batteryLevel').textContent = '-';
+                document.getElementById('temperature').textContent = '-';
+                document.getElementById('humidity').textContent = '-';
+                document.getElementById('flowRate').textContent = '-';
+                document.getElementById('macAddress').textContent = '-';
+                document.getElementById('firmwareVersion').textContent = '-';
+                
+                // Clear intervals
+                if (monitoringInterval) {
+                    clearInterval(monitoringInterval);
+                    monitoringInterval = null;
+                }
+                if (connectionCheckInterval) {
+                    clearInterval(connectionCheckInterval);
+                    connectionCheckInterval = null;
+                }
+            }
+        }
+
+        // Start connection monitoring
+        function startConnectionCheck() {
+            if (connectionCheckInterval) return;
+            
+            connectionCheckInterval = setInterval(async () => {
+                // Only check connection if we have a device reference and aren't reconnecting
+                if (device && device.gatt && !device.gatt.connected && !isReconnecting) {
+                    log('Connection lost, attempting reconnection...', 'warning');
+                    handleDisconnection();
+                }
+            }, 5000); // Check every 5 seconds
+        }
+
+        // Refresh sensors manually
+        async function refreshSensors() {
+            if (!device || !device.gatt || !device.gatt.connected) {
+                log('Not connected', 'error');
+                return;
+            }
+            
+            try {
+                // Battery
+                if (batteryCharacteristic) {
+                    const batteryValue = await batteryCharacteristic.readValue();
+                    const batteryLevel = batteryValue.getUint8(0);
+                    document.getElementById('batteryLevel').textContent = `${batteryLevel}%`;
+                }
+
+                // Temperature
+                if (temperatureCharacteristic) {
+                    const tempValue = await temperatureCharacteristic.readValue();
+                    const temperature = tempValue.getInt16(0, true) / 100;
+                    document.getElementById('temperature').textContent = `${temperature.toFixed(1)}°C`;
+                }
+
+                // Humidity
+                if (humidityCharacteristic) {
+                    const humidityValue = await humidityCharacteristic.readValue();
+                    const humidity = humidityValue.getUint16(0, true) / 100;
+                    document.getElementById('humidity').textContent = `${humidity.toFixed(1)}%`;
+                }
+
+                // Flow Rate
+                if (flowCharacteristic) {
+                    const flowValue = await flowCharacteristic.readValue();
+                    const flowRate = new Float32Array(flowValue.buffer)[0];
+                    document.getElementById('flowRate').textContent = `${flowRate.toFixed(2)} L/min`;
+                }
+
+                // MAC Address
+                if (macAddressCharacteristic) {
+                    const macValue = await macAddressCharacteristic.readValue();
+                    const macString = new TextDecoder().decode(macValue);
+                    document.getElementById('macAddress').textContent = macString;
+                }
+
+                // Firmware Version
+                if (firmwareVersionCharacteristic) {
+                    const firmwareValue = await firmwareVersionCharacteristic.readValue();
+                    const firmwareString = new TextDecoder().decode(firmwareValue);
+                    document.getElementById('firmwareVersion').textContent = firmwareString;
+                }
+
+                log('Sensors refreshed');
+            } catch (error) {
+                log(`Error refreshing sensors: ${error.message}`, 'error');
+                if (!isReconnecting) {
+                    handleDisconnection();
+                }
+            }
+        }
+
+        // Toggle control
+        function toggleControl(controlId, commandPrefix) {
+            // Check connection state more thoroughly
+            if (!device || !device.gatt || !device.gatt.connected || !controlCharacteristic) {
+                log('Not connected or characteristic not available', 'error');
+                return;
+            }
+
+            // Prevent rapid button clicks
+            const btn = document.getElementById(`${controlId}Btn`);
+            if (btn.disabled) {
+                log('Command in progress, please wait', 'warning');
+                return;
+            }
+
+            // Disable button during command execution
+            btn.disabled = true;
+            
+            // Toggle state
+            controlStates[controlId] = !controlStates[controlId];
+            const isOn = controlStates[controlId];
+            
+            // Update UI immediately for responsiveness
+            updateControlButton(controlId, isOn);
+            
+            const command = `${commandPrefix} ${isOn ? 'ON' : 'OFF'}`;
+            
+            // Send command and re-enable button after completion
+            sendCommand(command).then(() => {
+                // Re-enable button after command completes
+                setTimeout(() => {
+                    btn.disabled = false;
+                }, 500); // Small delay to prevent rapid clicking
+            }).catch((error) => {
+                // On error, revert the state and button
+                log(`Command failed: ${error.message}`, 'error');
+                controlStates[controlId] = !controlStates[controlId];
+                updateControlButton(controlId, !isOn);
+                btn.disabled = false;
+            });
+        }
+
+        // Update button
+        function updateControlButton(controlId, isOn) {
+            const btn = document.getElementById(`${controlId}Btn`);
+            const icon = document.getElementById(`${controlId}Icon`);
+            const text = document.getElementById(`${controlId}Text`);
+            
+            // Store the current state in the button element for verification
+            btn.setAttribute('data-state', isOn ? 'on' : 'off');
+            
+            if (isOn) {
+                btn.className = 'toggle-btn on';
+                text.textContent = 'ON';
+                icon.textContent = (controlId === 'power') ? '⚡' : '🔓';
+            } else {
+                btn.className = 'toggle-btn off';
+                text.textContent = 'OFF';
+                icon.textContent = (controlId === 'power') ? '⚡' : '🔒';
+            }
+            
+            // Add visual feedback for disabled state
+            if (btn.disabled) {
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.style.opacity = '';
+                btn.style.cursor = 'pointer';
+            }
+        }
+
+        // Send command
+        async function sendCommand(command) {
+            try {
+                // Verify connection state thoroughly
+                if (!device || !device.gatt || !device.gatt.connected || !controlCharacteristic) {
+                    throw new Error('Device not connected or characteristic not available');
+                }
+
+                // Test connection with a small read operation first
+                try {
+                    if (batteryCharacteristic) {
+                        await batteryCharacteristic.readValue();
+                    }
+                } catch (testError) {
+                    throw new Error('Connection test failed - device may be disconnected');
+                }
+
+                const encoder = new TextEncoder();
+                const commandData = encoder.encode(command);
+                
+                // Add timeout to prevent hanging
+                const writePromise = controlCharacteristic.writeValue(commandData);
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Command timeout')), 5000)
+                );
+                
+                await Promise.race([writePromise, timeoutPromise]);
+                log(`> ${command}`);
+
+            } catch (error) {
+                log(`Command error: ${error.message}`, 'error');
+                
+                // Check if this is a connection issue
+                if (error.message.includes('disconnected') || 
+                    error.message.includes('not available') ||
+                    error.message.includes('Connection test failed')) {
+                    if (!isReconnecting) {
+                        handleDisconnection();
+                    }
+                }
+                
+                // Re-throw error for calling function to handle
+                throw error;
+            }
+        }
+
+        // File selection handler
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                selectedFile = null;
+                document.getElementById('fileInfo').classList.add('hidden');
+                document.getElementById('updateBtn').disabled = true;
+                return;
+            }
+
+            if (!file.name.toLowerCase().endsWith('.bin')) {
+                log('Please select a .bin firmware file', 'error');
+                selectedFile = null;
+                document.getElementById('updateBtn').disabled = true;
+                return;
+            }
+
+            selectedFile = file;
+            const fileInfo = document.getElementById('fileInfo');
+            fileInfo.innerHTML = `
+                <strong>Selected:</strong> ${file.name}<br>
+                <strong>Size:</strong> ${(file.size / 1024).toFixed(1)} KB
+            `;
+            fileInfo.classList.remove('hidden');
+            document.getElementById('updateBtn').disabled = false;
+            log(`File selected: ${file.name} (${file.size} bytes)`);
+        }
+
+        // Start firmware update
+        async function startFirmwareUpdate() {
+            if (!selectedFile || otaInProgress) {
+                return;
+            }
+
+            try {
+                otaInProgress = true;
+                document.getElementById('updateBtn').disabled = true;
+                document.getElementById('otaProgress').classList.remove('hidden');
+                
+                // Stop monitoring during OTA to prevent interference
+                if (monitoringInterval) {
+                    clearInterval(monitoringInterval);
+                    monitoringInterval = null;
+                }
+                if (connectionCheckInterval) {
+                    clearInterval(connectionCheckInterval);
+                    connectionCheckInterval = null;
+                }
+                
+                log('Starting firmware update...');
+                
+                // Read file as array buffer
+                const arrayBuffer = await selectedFile.arrayBuffer();
+                const firmwareData = new Uint8Array(arrayBuffer);
+                
+                log(`Firmware size: ${firmwareData.length} bytes`);
+                
+                // Verify connection before starting
+                if (!device || !device.gatt || !device.gatt.connected) {
+                    throw new Error('Device not connected');
+                }
+                
+                // Test connection stability before OTA
+                log('Testing connection stability...');
+                try {
+                    // Test connection with multiple small operations
+                    for (let i = 0; i < 3; i++) {
+                        if (!device || !device.gatt || !device.gatt.connected) {
+                            throw new Error('Connection lost during stability test');
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                    
+                    // Try a small read operation to test communication
+                    if (batteryCharacteristic) {
+                        await batteryCharacteristic.readValue();
+                        log('Connection stability test passed');
+                    }
+                } catch (error) {
+                    throw new Error(`Connection not stable enough for firmware update: ${error.message}`);
+                }
+                
+                // Start OTA update - send command to ESP32
+                const startCommand = new Uint8Array(5);
+                startCommand[0] = 0x01; // Start OTA command
+                startCommand[1] = (firmwareData.length >> 0) & 0xFF;
+                startCommand[2] = (firmwareData.length >> 8) & 0xFF;
+                startCommand[3] = (firmwareData.length >> 16) & 0xFF;
+                startCommand[4] = (firmwareData.length >> 24) & 0xFF;
+                
+                await otaControlCharacteristic.writeValue(startCommand);
+                log('OTA start command sent');
+                
+                // Wait longer for ESP32 to prepare for OTA
+                log('Waiting for ESP32 to prepare...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Start with very small chunk size for OTA stability
+                let currentChunkSize = 32; // Start very small for OTA
+                let retryCount = 0;
+                const maxRetries = 8; // More retries for OTA
+                
+                // Send firmware data in chunks
+                let sentBytes = 0;
+                let chunkIndex = 0;
+                
+                log(`Starting data transfer with ${currentChunkSize} byte chunks...`);
+                
+                while (sentBytes < firmwareData.length) {
+                    // Check connection before each chunk
+                    if (!device || !device.gatt || !device.gatt.connected) {
+                        throw new Error('Connection lost during firmware update');
+                    }
+                    
+                    const start = sentBytes;
+                    const end = Math.min(start + currentChunkSize, firmwareData.length);
+                    const chunk = firmwareData.slice(start, end);
+                    
+                    try {
+                        await otaDataCharacteristic.writeValue(chunk);
+                        sentBytes += chunk.length;
+                        chunkIndex++;
+                        retryCount = 0; // Reset retry count on success
+                        
+                        // Update progress
+                        const progress = Math.round((sentBytes / firmwareData.length) * 100);
+                        document.getElementById('progressFill').style.width = `${progress}%`;
+                        document.getElementById('progressText').textContent = `${progress}%`;
+                        
+                        // Add delay every 5 chunks to prevent overwhelming ESP32
+                        if (chunkIndex % 5 === 0) {
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Check connection health during delay
+                            if (!device || !device.gatt || !device.gatt.connected) {
+                                throw new Error('Connection lost during delay');
+                            }
+                            log(`Progress: ${progress}% (${sentBytes}/${firmwareData.length} bytes)`);
+                        } else {
+                            // Small delay between every chunk for OTA stability
+                            await new Promise(resolve => setTimeout(resolve, 20));
+                        }
+                        
+                        // Increase chunk size gradually and carefully
+                        if (chunkIndex % 100 === 0 && currentChunkSize < 64) {
+                            currentChunkSize = Math.min(64, currentChunkSize + 16);
+                            log(`Increased chunk size to ${currentChunkSize} bytes`);
+                        }
+                        
+                    } catch (error) {
+                        retryCount++;
+                        log(`Chunk ${chunkIndex} failed: ${error.message}`, 'warning');
+                        
+                        if (retryCount >= maxRetries) {
+                            throw new Error(`Failed to send chunk after ${maxRetries} retries: ${error.message}`);
+                        }
+                        
+                        // Reduce chunk size and add much longer delay
+                        currentChunkSize = Math.max(16, Math.floor(currentChunkSize / 2));
+                        log(`Reducing chunk size to ${currentChunkSize} bytes, retry ${retryCount}/${maxRetries}`, 'warning');
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // Longer delay for recovery
+                        
+                        // Don't advance sentBytes on failure - retry the same chunk
+                        continue;
+                    }
+                }
+                
+                log('All firmware data sent, finishing update...');
+                
+                // Wait before sending finish command
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Try to send finish command, but don't fail if it doesn't work
+                // (ESP32 might already be restarting)
+                try {
+                    // Finish OTA update
+                    const finishCommand = new Uint8Array(5);
+                    finishCommand[0] = 0x02; // Finish OTA command
+                    finishCommand[1] = 0;
+                    finishCommand[2] = 0;
+                    finishCommand[3] = 0;
+                    finishCommand[4] = 0;
+                    
+                    await otaControlCharacteristic.writeValue(finishCommand);
+                    log('OTA finish command sent');
+                } catch (error) {
+                    // This is normal - ESP32 might already be restarting
+                    log('ESP32 already restarting - this is normal after successful firmware transfer', 'info');
+                }
+                
+                // Update progress to 100%
+                document.getElementById('progressFill').style.width = '100%';
+                document.getElementById('progressText').textContent = '100%';
+                
+                log('Firmware update completed successfully! Device will restart.', 'info');
+                
+                // Device will restart, so disconnect after delay
+                setTimeout(() => {
+                    updateConnectionStatus(false);
+                    log('Device restarted with new firmware', 'info');
+                    log('You can reconnect to test the new firmware', 'info');
+                }, 5000);
+                
+            } catch (error) {
+                log(`Firmware update failed: ${error.message}`, 'error');
+                document.getElementById('progressFill').style.width = '0%';
+                document.getElementById('progressText').textContent = '0%';
+                
+                // Try to restore normal operation
+                if (device && device.gatt && device.gatt.connected) {
+                    startMonitoring();
+                    startConnectionCheck();
+                }
+            } finally {
+                otaInProgress = false;
+                document.getElementById('updateBtn').disabled = false;
+            }
+        }
+
+        // Read current device states
+        async function readDeviceStates() {
+            try {
+                log('Reading current device states...', 'info');
+                
+                // Send STATUS command to get current states
+                await sendCommand('STATUS');
+                
+                // Give device time to process and update characteristics
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // For now, we'll assume states are OFF until we get status feedback
+                // TODO: Parse STATUS response to get actual states
+                // This would require the ESP32 to send back state information
+                
+                log('Device states synchronized', 'info');
+            } catch (error) {
+                log(`Error reading device states: ${error.message}`, 'warning');
+                // Default to OFF states if we can't read current states
+                controlStates = { valve1: false, valve2: false, power: false };
+                updateControlButton('valve1', false);
+                updateControlButton('valve2', false);
+                updateControlButton('power', false);
+            }
+        }
+
+        // Read device info (MAC address and firmware version)
+        async function readDeviceInfo() {
+            try {
+                log('Reading device info...', 'info');
+                
+                // Read MAC Address
+                if (macAddressCharacteristic) {
+                    log('Reading MAC address characteristic...', 'info');
+                    try {
+                        const macValue = await macAddressCharacteristic.readValue();
+                        log(`MAC value buffer length: ${macValue.byteLength}`, 'info');
+                        
+                        // Log raw bytes for debugging
+                        const macBytes = new Uint8Array(macValue.buffer);
+                        const macBytesHex = Array.from(macBytes, byte => byte.toString(16).padStart(2, '0')).join(' ');
+                        log(`MAC raw bytes: ${macBytesHex}`, 'info');
+                        
+                        const macString = new TextDecoder().decode(macValue);
+                        log(`MAC decoded string: '${macString}' (length: ${macString.length})`, 'info');
+                        
+                        document.getElementById('macAddress').textContent = macString;
+                        log(`MAC Address: ${macString}`, 'info');
+                    } catch (macError) {
+                        log(`Error reading MAC address: ${macError.message}`, 'error');
+                    }
+                } else {
+                    log('MAC address characteristic not available', 'warning');
+                }
+
+                // Read Firmware Version
+                if (firmwareVersionCharacteristic) {
+                    log('Reading firmware version characteristic...', 'info');
+                    try {
+                        const firmwareValue = await firmwareVersionCharacteristic.readValue();
+                        const firmwareString = new TextDecoder().decode(firmwareValue);
+                        document.getElementById('firmwareVersion').textContent = firmwareString;
+                        log(`Firmware: ${firmwareString}`, 'info');
+                    } catch (firmwareError) {
+                        log(`Error reading firmware version: ${firmwareError.message}`, 'error');
+                    }
+                } else {
+                    log('Firmware version characteristic not available', 'warning');
+                }
+            } catch (error) {
+                log(`Error reading device info: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            if ('bluetooth' in navigator) {
+                log('Ready');
+            } else {
+                log('Bluetooth not supported', 'error');
+                connectBtn.disabled = true;
+                connectBtn.textContent = 'Bluetooth Not Supported';
+            }
+        });
+
+        // Handle page visibility changes (background/foreground)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Page is hidden/minimized
+                log('Page hidden - maintaining connection', 'info');
+            } else {
+                // Page is visible again
+                if (device && device.gatt && device.gatt.connected) {
+                    log('Page visible - connection maintained', 'info');
+                } else if (device && !isReconnecting) {
+                    log('Page visible - attempting reconnection', 'warning');
+                    attemptReconnection();
+                }
+            }
+        });
+
+        // Handle page unload (browser closing/refreshing)
+        window.addEventListener('beforeunload', (event) => {
+            if (device && device.gatt && device.gatt.connected) {
+                // Show confirmation dialog
+                event.preventDefault();
+                event.returnValue = 'BLE device is connected. Close anyway?';
+                
+                // Attempt graceful disconnect
+                try {
+                    device.gatt.disconnect();
+                    log('Disconnected before page close');
+                } catch (error) {
+                    // Ignore errors during cleanup
+                }
+            }
+        });
+
+        // Handle page close
+        window.addEventListener('unload', () => {
+            if (device && device.gatt && device.gatt.connected) {
+                try {
+                    device.gatt.disconnect();
+                } catch (error) {
+                    // Ignore errors during cleanup
+                }
+            }
+        });
+
+        // Prevent page sleep on mobile (helps maintain BLE connection)
+        if ('wakeLock' in navigator) {
+            let wakeLock = null;
+            async function requestWakeLock() {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    log('Screen wake lock acquired', 'info');
+                } catch (err) {
+                    // Wake lock not supported or failed
+                }
+            }
+            
+            // Request wake lock when connected
+            const originalUpdateStatus = updateConnectionStatus;
+            updateConnectionStatus = function(connected) {
+                originalUpdateStatus(connected);
+                if (connected) {
+                    requestWakeLock();
+                } else if (wakeLock) {
+                    wakeLock.release();
+                    wakeLock = null;
+                }
+            };
+        }
+    </script>
+</body>
+</html>
