@@ -1048,15 +1048,15 @@ uint8_t read_battery_level() {
     // If using 2:1 voltage divider, multiply by 2
     voltage *= 2; // Adjust this based on your voltage divider circuit
 
-    // Convert voltage to battery percentage (assuming 3.0V min, 4.2V max for Li-Ion)
+    // Convert voltage to battery percentage (1750mV = 100%, 1200mV = 0% for custom battery setup)
     uint8_t new_battery_level;
-    if (voltage >= 4200) {
+    if (voltage >= 1750) {
         new_battery_level = 100;
-    } else if (voltage <= 3000) {
+    } else if (voltage <= 1200) {
         new_battery_level = 0;
     } else {
-        // Linear mapping from 3.0V-4.2V to 0-100%
-        new_battery_level = (uint8_t)((voltage - 3000) * 100 / 1200);
+        // Linear mapping from 1.2V-1.75V to 0-100%
+        new_battery_level = (uint8_t)((voltage - 1200) * 100 / 550);
     }
 
     // Update cached values
