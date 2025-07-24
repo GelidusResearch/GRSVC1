@@ -42,7 +42,7 @@
 #define DEEP_SLEEP_DURATION_US (5 * 1000000)  // 5 seconds deep sleep
 #define LIGHT_SLEEP_DURATION_MS 100            // 100ms light sleep
 #define SENSOR_READ_INTERVAL_MS (30 * 1000)   // 30 seconds between sensor reads
-#define BATTERY_CHECK_INTERVAL_MS (60 * 1000) // 1 minute between battery checks
+#define BATTERY_CHECK_INTERVAL_MS (15 * 1000) // 5 seconds between battery checks for debugging
 #define SW1_GPIO GPIO_NUM_16  // Switch 1 GPIO pin
 #define SW2_GPIO GPIO_NUM_17  // Switch 2 GPIO pin
 #define SW3_GPIO GPIO_NUM_18  // Switch 3 GPIO pin
@@ -314,6 +314,7 @@ void process_switch_presses() {
 void ble_app_advertise(void);
 void connection_monitor_task(void *param);
 void force_advertising_restart(void);
+uint8_t read_battery_level(void);
 
 // Command enumeration for switch-case
 typedef enum {
@@ -337,7 +338,8 @@ typedef enum {
     CMD_POWER_SAVE_ON,
     CMD_POWER_SAVE_OFF,
     CMD_POWER_STATUS,
-    CMD_SWITCH_STATUS
+    CMD_SWITCH_STATUS,
+    CMD_TEST_BATTERY
 } command_t;
 
 // Function to parse command string to enum
@@ -362,6 +364,7 @@ static command_t parse_command(const char* cmd) {
     if (strcmp(cmd, "POWER SAVE OFF") == 0) return CMD_POWER_SAVE_OFF;
     if (strcmp(cmd, "POWER STATUS") == 0) return CMD_POWER_STATUS;
     if (strcmp(cmd, "SWITCH STATUS") == 0) return CMD_SWITCH_STATUS;
+    if (strcmp(cmd, "TEST BATTERY") == 0) return CMD_TEST_BATTERY;
     return CMD_UNKNOWN;
 }
 
@@ -684,6 +687,24 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             } else if (is_connected) {
                 ESP_LOGI(TAG, "Device is connected and functioning normally");
                 ESP_LOGI(TAG, "Connection handle: %d", conn_handle);
+                
+                // Verify connection validity
+                if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+                    struct ble_gap_conn_desc desc;
+                    int conn_check = ble_gap_conn_find(conn_handle, &desc);
+                    
+                    if (conn_check == 0) {
+                        ESP_LOGI(TAG, "✓ Connection is VALID (peer address: %02X:%02X:%02X:%02X:%02X:%02X)",
+                                desc.peer_id_addr.val[5], desc.peer_id_addr.val[4], desc.peer_id_addr.val[3],
+                                desc.peer_id_addr.val[2], desc.peer_id_addr.val[1], desc.peer_id_addr.val[0]);
+                    } else {
+                        ESP_LOGW(TAG, "✗ PHANTOM CONNECTION DETECTED! Handle %d is invalid (error: %d)", 
+                                conn_handle, conn_check);
+                        ESP_LOGW(TAG, "Use 'RESTART ADV' to fix this issue");
+                    }
+                } else {
+                    ESP_LOGW(TAG, "✗ Invalid connection handle (BLE_HS_CONN_HANDLE_NONE)");
+                }
             }
 
             ESP_LOGI(TAG, "=== RECOMMENDATIONS ===");
@@ -922,6 +943,29 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             ESP_LOGI(TAG, "SW2 Press Flag: %s", sw2_pressed ? "SET" : "CLEAR");
             ESP_LOGI(TAG, "Debounce Period: %d ms", SWITCH_DEBOUNCE_MS);
             break;
+        case CMD_TEST_BATTERY:
+            ESP_LOGI(TAG, "TEST BATTERY - Force reading battery level and ADC values");
+            
+            // Force cache refresh by resetting the timer
+            last_battery_check = 0;
+            
+            // Read fresh battery level
+            uint8_t fresh_battery = read_battery_level();
+            ESP_LOGI(TAG, "Fresh Battery Reading Complete: %d%%", fresh_battery);
+            
+            // Also read the ADC directly for debugging
+            int raw_adc = 0;
+            esp_err_t adc_result = adc_oneshot_read(adc2_handle, ADC_CHANNEL_5, &raw_adc);
+            if (adc_result == ESP_OK) {
+                uint32_t direct_voltage = (raw_adc * 3300) / 4095;
+                uint32_t battery_voltage = (direct_voltage * 2341) / 1000; // Voltage divider compensation (2.341:1 ratio)
+                ESP_LOGI(TAG, "Direct ADC Test: raw=%d, gpio_voltage=%lumV, battery_voltage=%lumV", 
+                         raw_adc, (unsigned long)direct_voltage, (unsigned long)battery_voltage);
+                ESP_LOGI(TAG, "Voltage divider ratio: 2.341:1 (based on 4100mV->1751mV measurement, raw=2243)");
+            } else {
+                ESP_LOGE(TAG, "Direct ADC read failed: %s", esp_err_to_name(adc_result));
+            }
+            break;
         case CMD_UNKNOWN:
         default:
             ESP_LOGW(TAG, "Unknown command: %s", data);
@@ -1042,22 +1086,26 @@ uint8_t read_battery_level() {
 
     // Convert to voltage (mV) - simple linear conversion
     // ADC range: 0-4095 for 12-bit, voltage range: 0-3300mV with 12dB attenuation
-    uint32_t voltage = (adc_reading * 3300) / 4095;
+    uint32_t adc_voltage = (adc_reading * 3300) / 4095;
 
-    // Assuming voltage divider: Battery -> R1 -> ADC_PIN -> R2 -> GND
-    // If using 2:1 voltage divider, multiply by 2
-    voltage *= 2; // Adjust this based on your voltage divider circuit
+    // Voltage divider calculation: Battery -> R1 -> ADC_PIN -> R2 -> GND
+    uint32_t voltage_mV = (adc_voltage * 2275) / 1000; // Multiply by 2.275 (as 2275/1000 for integer math)
 
-    // Convert voltage to battery percentage (assuming 3.0V min, 4.2V max for Li-Ion)
+    // Convert voltage to battery percentage for Li-ion battery
+    // 4200mV = 100% (fully charged), 3000mV = 0% (cutoff voltage)
     uint8_t new_battery_level;
-    if (voltage >= 4200) {
+    if (voltage_mV >= 4100) {
         new_battery_level = 100;
-    } else if (voltage <= 3000) {
+    } else if (voltage_mV <= 3000) {
         new_battery_level = 0;
     } else {
-        // Linear mapping from 3.0V-4.2V to 0-100%
-        new_battery_level = (uint8_t)((voltage - 3000) * 100 / 1200);
+        // Linear mapping from 2900mV-4100mV to 0-100%
+        new_battery_level = (uint8_t)((voltage_mV - 2900) * 100 / 1200); // 1200mV range
     }
+
+    // Log battery reading details for debugging
+    ESP_LOGI(TAG, "Battery ADC Reading: raw=%lu, adc_voltage=%lumV, battery_voltage=%lumV, percentage=%d%% (samples=%d)",
+             (unsigned long)adc_reading, (unsigned long)adc_voltage, (unsigned long)voltage_mV, new_battery_level, successful_reads);
 
     // Update cached values
     battery_level = new_battery_level;
@@ -1071,10 +1119,13 @@ static int battery_level_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt *ctxt, void *arg) {
     switch (ctxt->op) {
         case BLE_GATT_ACCESS_OP_READ_CHR:
+            ESP_LOGI(TAG, "Battery characteristic read requested");
             uint8_t current_battery_level = read_battery_level();
+            ESP_LOGI(TAG, "Returning battery level: %d%%", current_battery_level);
             if (os_mbuf_append(ctxt->om, &current_battery_level, sizeof(current_battery_level)) == 0) {
                 return 0; // Success
             } else {
+                ESP_LOGE(TAG, "Failed to append battery level to response");
                 return BLE_ATT_ERR_INSUFFICIENT_RES;
             }
         case BLE_GATT_ACCESS_OP_WRITE_CHR:
@@ -2042,6 +2093,42 @@ void force_advertising_restart(void)
 {
     ESP_LOGI(TAG, "Forcing advertising restart...");
 
+    // Check if we think we're connected but might have a phantom connection
+    if (is_connected && conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGI(TAG, "Checking connection validity (handle: %d)...", conn_handle);
+        
+        // Try to get connection info to verify if connection is still valid
+        struct ble_gap_conn_desc desc;
+        int conn_check = ble_gap_conn_find(conn_handle, &desc);
+        
+        if (conn_check != 0) {
+            ESP_LOGW(TAG, "Connection handle %d is invalid (error: %d) - forcing disconnect", 
+                     conn_handle, conn_check);
+            
+            // Force disconnect the phantom connection
+            is_connected = false;
+            conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            ESP_LOGI(TAG, "Phantom connection cleared");
+        } else {
+            ESP_LOGI(TAG, "Connection handle %d is valid - terminating before restart", conn_handle);
+            
+            // Actively terminate the existing connection
+            int term_rc = ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            if (term_rc == 0) {
+                ESP_LOGI(TAG, "Successfully terminated existing connection");
+            } else {
+                ESP_LOGW(TAG, "Failed to terminate connection: %d", term_rc);
+            }
+            
+            // Wait for disconnect event
+            vTaskDelay(pdMS_TO_TICKS(500));
+            
+            // Force reset connection state
+            is_connected = false;
+            conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        }
+    }
+
     // Always stop current advertising first, regardless of state
     int rc = ble_gap_adv_stop();
     if (rc == 0) {
@@ -2053,10 +2140,9 @@ void force_advertising_restart(void)
     // Reset advertising state
     is_advertising = false;
 
-    // Reset connection state if needed
-    if (!is_connected) {
-        conn_handle = BLE_HS_CONN_HANDLE_NONE;
-    }
+    // Ensure connection state is cleared
+    conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    is_connected = false;
 
     // Wait for proper cleanup
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -2070,7 +2156,7 @@ void force_advertising_restart(void)
     if (!is_advertising) {
         ESP_LOGW(TAG, "Advertising restart failed after multiple attempts");
     } else {
-        ESP_LOGI(TAG, "Advertising restart successful");
+        ESP_LOGI(TAG, "Advertising restart successful - device should now be visible for pairing");
     }
 }
 
@@ -2155,12 +2241,6 @@ void ble_app_on_sync(void)
     // This must be called after BLE stack is synchronized
     ESP_LOGI(TAG, "Initializing MAC address string...");
     init_device_mac_string();
-
-    // Verify GATT services are available
-    ESP_LOGI(TAG, "BLE services should now be discoverable");
-    ESP_LOGI(TAG, "Expected services:");
-    ESP_LOGI(TAG, "  - Automation IO (0x1815) with 9 characteristics");
-    ESP_LOGI(TAG, "  - Device Information (0x180A) with 5 characteristics");
     ESP_LOGI(TAG, "Total expected characteristics: 14");
 
     // Start advertising
@@ -2242,6 +2322,35 @@ void connection_monitor_task(void *param)
             }
         } else {
             retry_count = 0; // Reset when connected or advertising
+        }
+
+        // Phantom connection detection - check every 10 seconds if we think we're connected
+        static uint32_t last_phantom_check = 0;
+        if (is_connected && (current_time - last_phantom_check > 10000)) {
+            last_phantom_check = current_time;
+            
+            // Verify connection is still valid
+            if (conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+                struct ble_gap_conn_desc desc;
+                int conn_check = ble_gap_conn_find(conn_handle, &desc);
+                
+                if (conn_check != 0) {
+                    ESP_LOGW(TAG, "Phantom connection detected! Handle %d invalid (error: %d)", 
+                             conn_handle, conn_check);
+                    ESP_LOGW(TAG, "Clearing phantom connection and restarting advertising");
+                    
+                    // Clear phantom connection
+                    is_connected = false;
+                    conn_handle = BLE_HS_CONN_HANDLE_NONE;
+                    
+                    // Force restart advertising
+                    ble_app_advertise();
+                } else {
+                    // Connection is valid - maybe do a periodic ping test here in future
+                    // For now, just log that connection is healthy
+                    ESP_LOGD(TAG, "Connection health check passed (handle: %d)", conn_handle);
+                }
+            }
         }
 
         // Log state changes
@@ -2432,6 +2541,10 @@ void app_main()
     ESP_LOGI(TAG, "Initializing battery ADC...");
     battery_adc_init();
     ESP_LOGI(TAG, "Battery ADC initialized");
+    // Force initial battery reading on startup BEFORE BLE init
+    ESP_LOGI(TAG, "Taking initial battery voltage reading...");
+    uint8_t startup_battery = read_battery_level();
+    ESP_LOGI(TAG, "Startup battery level: %d%%", startup_battery);
     vTaskDelay(pdMS_TO_TICKS(50));
 
     // Initialize OTA (Over-The-Air) update system

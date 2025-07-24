@@ -334,7 +334,11 @@
         </div>
         <button id="connectBtn" class="btn">Connect</button>
         <button id="disconnectBtn" class="btn btn-danger hidden">Disconnect</button>
+        <button id="restartAdvBtn" class="btn" style="background: #ffc107; color: #333;" onclick="restartAdvertising()">Restart Device Advertising</button>
         <button id="testDeviceInfoBtn" class="btn hidden" style="background: #17a2b8;">Test Device Info</button>
+        <div style="margin-top: 10px; font-size: 0.85em; color: #666;">
+            <strong>Can't find device?</strong> Click "Restart Device Advertising" if the device was previously connected but is no longer visible for pairing.
+        </div>
     </div>
 
     <!-- Status -->
@@ -672,7 +676,17 @@
                 log('Connected successfully! Connection will persist when page is minimized.');
                 
             } catch (error) {
-                log(`Connection failed: ${error.message}`, 'error');
+                // Provide specific error messages for common scenarios
+                if (error.message.includes('User cancelled') || error.message.includes('cancelled')) {
+                    log('Connection cancelled by user', 'warning');
+                } else if (error.message.includes('not found') || error.message.includes('No devices found')) {
+                    log('GRSVC1 device not found - make sure device is powered on and advertising', 'error');
+                    log('💡 If device was previously connected, try "Restart Device Advertising" button', 'info');
+                } else if (error.message.includes('Timeout') || error.message.includes('timeout')) {
+                    log('Connection timeout - device may be out of range or busy', 'error');
+                } else {
+                    log(`Connection failed: ${error.message}`, 'error');
+                }
                 updateConnectionStatus(false);
                 device = null; // Clear device reference on connection failure
             } finally {
@@ -716,11 +730,11 @@
             log('Device disconnected', 'warning');
             if (!isReconnecting && !manualDisconnect) {
                 updateConnectionStatus(false);
-                // Only attempt reconnection if device wasn't manually disconnected
+                // Only attempt reconnection if device wasn't manually disconnected AND device reference exists
                 if (device !== null) {
                     attemptReconnection();
                 } else {
-                    log('Manual disconnect detected - click Connect to pair again', 'info');
+                    log('Device reference lost (browser restart) - click Connect to pair again', 'info');
                 }
             } else if (manualDisconnect) {
                 log('Manual disconnect completed', 'info');
@@ -730,7 +744,14 @@
 
         // Attempt to reconnect
         async function attemptReconnection() {
-            if (isReconnecting || !device) return;
+            if (isReconnecting || !device) {
+                // If device is null (browser restart), don't attempt reconnection
+                if (!device) {
+                    log('Browser restarted - device pairing lost. Click Connect to pair again.', 'info');
+                    updateConnectionStatus(false);
+                }
+                return;
+            }
             
             isReconnecting = true;
             log('Attempting to reconnect...', 'warning');
@@ -1318,10 +1339,77 @@
             }
         }
 
+        // Restart device advertising - useful when device is not visible for pairing
+        async function restartAdvertising() {
+            const btn = document.getElementById('restartAdvBtn');
+            const originalText = btn.textContent;
+            
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Restarting...';
+                
+                log('Attempting to restart device advertising...', 'info');
+                
+                // Try to connect to any previously paired GRSVC1 device and send restart command
+                try {
+                    // First try to find a previously paired device
+                    const devices = await navigator.bluetooth.getDevices();
+                    let grsvc1Device = null;
+                    
+                    for (const pairedDevice of devices) {
+                        if (pairedDevice.name === 'GRSVC1') {
+                            grsvc1Device = pairedDevice;
+                            break;
+                        }
+                    }
+                    
+                    if (grsvc1Device) {
+                        log('Found previously paired device, attempting to send restart command...', 'info');
+                        
+                        // Try to connect to the paired device
+                        const tempServer = await grsvc1Device.gatt.connect();
+                        const tempService = await tempServer.getPrimaryService(AUTOMATION_SERVICE_UUID);
+                        const tempControlChar = await tempService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
+                        
+                        // Send restart advertising command
+                        const encoder = new TextEncoder();
+                        const commandData = encoder.encode('RESTART ADV');
+                        await tempControlChar.writeValue(commandData);
+                        
+                        log('✓ Restart advertising command sent successfully', 'success');
+                        log('Device should now be visible for new connections', 'info');
+                        
+                        // Disconnect from temporary connection
+                        await tempServer.disconnect();
+                        
+                    } else {
+                        log('No previously paired GRSVC1 device found', 'warning');
+                        log('If device was connected before, try powering it off and on', 'info');
+                    }
+                    
+                } catch (restartError) {
+                    log(`Could not send restart command: ${restartError.message}`, 'warning');
+                    log('Device may not be responding. Try these steps:', 'info');
+                    log('1. Power cycle the GRSVC1 device (turn off and on)', 'info');
+                    log('2. Wait 5 seconds, then try connecting again', 'info');
+                    log('3. If still not visible, forget device in browser and re-pair', 'info');
+                }
+                
+            } catch (error) {
+                log(`Restart advertising failed: ${error.message}`, 'error');
+                log('Try power cycling the device if connection issues persist', 'warning');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             if ('bluetooth' in navigator) {
-                log('Ready');
+                log('Ready - Click Connect to pair with GRSVC1 device');
+                // Ensure UI is in disconnected state on page load
+                updateConnectionStatus(false);
             } else {
                 log('Bluetooth not supported', 'error');
                 connectBtn.disabled = true;
@@ -1341,6 +1429,8 @@
                 } else if (device && !isReconnecting) {
                     log('Page visible - attempting reconnection', 'warning');
                     attemptReconnection();
+                } else if (!device) {
+                    log('Page visible - device pairing lost, click Connect to pair again', 'info');
                 }
             }
         });
