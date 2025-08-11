@@ -146,24 +146,108 @@ void setupValves() {
   pinMode(HB_2A_VALVE_2, OUTPUT);
   pinMode(HB_2B_VALVE_2, OUTPUT);
   pinMode(EN_12V, OUTPUT);
-}
-void toggleValve1() {
-  digitalWrite(EN_12V, HIGH);
-  delay(10);
-  digitalWrite(HB_1A_VALVE_1, HIGH);
-  delay(100);
+  
+  // Initialize all outputs to LOW (0+0 = sleep/High-Z state)
   digitalWrite(HB_1A_VALVE_1, LOW);
-  digitalWrite(EN_12V, LOW);
-  valve1State = !valve1State;
-}
-void toggleValve2() {
-  digitalWrite(EN_12V, HIGH);
-  delay(10);
-  digitalWrite(HB_2A_VALVE_2, HIGH);
-  delay(100);
+  digitalWrite(HB_1B_VALVE_1, LOW);
   digitalWrite(HB_2A_VALVE_2, LOW);
+  digitalWrite(HB_2B_VALVE_2, LOW);
   digitalWrite(EN_12V, LOW);
-  valve2State = !valve2State;
+  
+  Serial.println("Valve H-bridge control initialized - Sleep state (0+0)");
+}
+// 0 + 0: Coast/Sleep (High-Z state)
+// 0 + 1: Open valve
+// 1 + 0: Close valve
+// 1 + 1: Brake (not used)
+
+// Generic valve control function with valve number parameter
+void setValve(uint8_t valveNum, bool open) {
+  if (valveNum < 1 || valveNum > 2) {
+    Serial.print("Invalid valve number: ");
+    Serial.println(valveNum);
+    return;
+  }
+  
+  Serial.print("Setting Valve ");
+  Serial.print(valveNum);
+  Serial.print(" to: ");
+  Serial.println(open ? "OPEN" : "CLOSE");
+  
+  // Determine pin assignments based on valve number
+  uint8_t pinA = (valveNum == 1) ? HB_1A_VALVE_1 : HB_2A_VALVE_2;
+  uint8_t pinB = (valveNum == 1) ? HB_1B_VALVE_1 : HB_2B_VALVE_2;
+  
+  digitalWrite(EN_12V, HIGH);  // Enable 12V supply
+  delay(10);                   // Small delay for power stabilization
+  
+  if (open) {
+    // Open valve (0 + 1)
+    digitalWrite(pinA, LOW);
+    digitalWrite(pinB, HIGH);
+  } else {
+    // Close valve (1 + 0)
+    digitalWrite(pinA, HIGH);
+    digitalWrite(pinB, LOW);
+  }
+  
+  delay(50);  // 50ms pulse width for valve actuation
+  
+  // Sleep H-bridge (0 + 0) - Coast to High-Z state
+  digitalWrite(pinA, LOW);
+  digitalWrite(pinB, LOW);
+  
+  digitalWrite(EN_12V, LOW);   // Disable 12V supply
+  
+  // Update state tracking
+  if (valveNum == 1) {
+    valve1State = open;
+  } else {
+    valve2State = open;
+  }
+  
+  Serial.print("Valve ");
+  Serial.print(valveNum);
+  Serial.println(" operation complete");
+}
+
+// Toggle function with valve number parameter
+void toggleValve(uint8_t valveNum) {
+  if (valveNum == 1) {
+    setValve(1, !valve1State);
+  } else if (valveNum == 2) {
+    setValve(2, !valve2State);
+  } else {
+    Serial.print("Invalid valve number for toggle: ");
+    Serial.println(valveNum);
+  }
+}
+
+// Set valve state only if different
+void setValveState(uint8_t valveNum, bool open) {
+  bool currentState = (valveNum == 1) ? valve1State : valve2State;
+  if (currentState != open) {
+    setValve(valveNum, open);
+  }
+}
+
+// Direct open/close functions with valve number parameter
+void openValve(uint8_t valveNum) {
+  setValve(valveNum, true);
+}
+
+void closeValve(uint8_t valveNum) {
+  setValve(valveNum, false);
+}
+
+void stopAllValves() {
+  // Emergency stop - set all H-bridge outputs to sleep state (0 + 0)
+  digitalWrite(HB_1A_VALVE_1, LOW);
+  digitalWrite(HB_1B_VALVE_1, LOW);
+  digitalWrite(HB_2A_VALVE_2, LOW);
+  digitalWrite(HB_2B_VALVE_2, LOW);
+  digitalWrite(EN_12V, LOW);
+  Serial.println("All valves set to sleep state (High-Z)");
 }
 void setupBatteryMonitor() {
   pinMode(BATTERY_ADC, INPUT);
@@ -193,11 +277,11 @@ void setupButtons() {
 void handleButtons() {
   unsigned long now = millis();
   if (!digitalRead(PUSH_BUTTON_1) && now - lastBtn1Press > debounceMs) {
-    toggleValve1();
+    toggleValve(1);
     lastBtn1Press = now;
   }
   if (!digitalRead(PUSH_BUTTON_2) && now - lastBtn2Press > debounceMs) {
-    toggleValve2();
+    toggleValve(2);
     lastBtn2Press = now;
   }
   // Add PUSH_BUTTON_3 logic as needed
@@ -252,24 +336,18 @@ public:
                 // Valve 1
                 Serial.print("Valve 1 BLE command: ");
                 Serial.println(value);
-                if (value == 1 && !valve1State) {
-                    toggleValve1();
-                    Serial.println("Valve 1 activated via BLE");
-                } else if (value == 0 && valve1State) {
-                    toggleValve1();
-                    Serial.println("Valve 1 deactivated via BLE");
-                }
+                bool openState = (value == 1);
+                setValve(1, openState);
+                Serial.print("Valve 1 set to ");
+                Serial.println(openState ? "OPEN" : "CLOSE");
             } else if (pCharacteristic->getUUID().equals(NimBLEUUID("12345678-1234-1234-1234-123456789AC0"))) {
                 // Valve 2
                 Serial.print("Valve 2 BLE command: ");
                 Serial.println(value);
-                if (value == 1 && !valve2State) {
-                    toggleValve2();
-                    Serial.println("Valve 2 activated via BLE");
-                } else if (value == 0 && valve2State) {
-                    toggleValve2();
-                    Serial.println("Valve 2 deactivated via BLE");
-                }
+                bool openState = (value == 1);
+                setValve(2, openState);
+                Serial.print("Valve 2 set to ");
+                Serial.println(openState ? "OPEN" : "CLOSE");
             }
         }
     }
