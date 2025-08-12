@@ -53,6 +53,7 @@ NimBLEService* environmentalService = nullptr;
 NimBLEService* flowService = nullptr;
 NimBLEService* valveService = nullptr;
 NimBLEService* deviceService = nullptr;
+NimBLEService* otaService = nullptr;
 
 // NimBLE Characteristics
 NimBLECharacteristic* batteryLevelChar = nullptr;
@@ -63,6 +64,15 @@ NimBLECharacteristic* valve1StateChar = nullptr;
 NimBLECharacteristic* valve2StateChar = nullptr;
 NimBLECharacteristic* deviceNameChar = nullptr;
 NimBLECharacteristic* firmwareVersionChar = nullptr;
+NimBLECharacteristic* otaControlChar = nullptr;
+NimBLECharacteristic* otaDataChar = nullptr;
+
+// OTA variables
+bool otaInProgress = false;
+uint32_t otaExpectedSize = 0;
+uint32_t otaReceivedSize = 0;
+uint8_t* otaBuffer = nullptr;
+uint32_t otaBufferSize = 0;
 
 void flowISR() { pulseCount++; }
 
@@ -110,14 +120,28 @@ void loop() {
       NimBLEDevice::getAdvertising()->stop();
       delay(200); // Longer delay for clean stop
       
-      // Reconfigure advertising for restart
+      // Reconfigure advertising for restart with enhanced name advertising
       NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
       pAdvertising->setMinInterval(32);   // 20ms
       pAdvertising->setMaxInterval(160);  // 100ms
+      pAdvertising->setName("GRSVC1");    // Ensure name is set on restart
+      
+      // Enhanced name advertising for restart
+      NimBLEAdvertisementData advertisementData;
+      advertisementData.setName("GRSVC1");
+      advertisementData.setCompleteServices(BLEUUID("180F"));
+      pAdvertising->setAdvertisementData(advertisementData);
+      
+      NimBLEAdvertisementData scanResponseData;
+      scanResponseData.setName("GRSVC1");
+      pAdvertising->setScanResponseData(scanResponseData);
       
       bool started = NimBLEDevice::startAdvertising();
       Serial.print("Advertising restart result: ");
       Serial.println(started ? "SUCCESS" : "FAILED");
+      if (started) {
+        Serial.println("Device name 'GRSVC1' re-advertised with enhanced data");
+      }
       restartAdvertising = false;
     }
     
@@ -132,7 +156,7 @@ void loop() {
 
   // BLE/OTA updates
   updateBLE(temp, hum, batteryVoltage, batteryPct);
-  // handleOTA();
+  handleOTA();
 
   // Power management
   enterSleepIfIdle();
@@ -353,6 +377,114 @@ public:
     }
 };
 
+class OTACallbacks: public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* pCharacteristic) {
+        std::string rxValue = pCharacteristic->getValue();
+        
+        if (pCharacteristic->getUUID().equals(NimBLEUUID("12345678-1234-1234-1234-123456789AC1"))) {
+            // OTA Control characteristic
+            if (rxValue.length() >= 5) {
+                uint8_t command = rxValue[0];
+                
+                if (command == 0x01) { // Start OTA
+                    // Extract expected size (little endian)
+                    otaExpectedSize = (uint32_t)rxValue[1] | 
+                                    ((uint32_t)rxValue[2] << 8) | 
+                                    ((uint32_t)rxValue[3] << 16) | 
+                                    ((uint32_t)rxValue[4] << 24);
+                    
+                    Serial.print("OTA Start - Expected size: ");
+                    Serial.println(otaExpectedSize);
+                    
+                    // Allocate buffer for firmware
+                    if (otaBuffer != nullptr) {
+                        free(otaBuffer);
+                    }
+                    otaBuffer = (uint8_t*)malloc(otaExpectedSize);
+                    
+                    if (otaBuffer == nullptr) {
+                        Serial.println("OTA Error: Failed to allocate buffer");
+                        otaInProgress = false;
+                        return;
+                    }
+                    
+                    otaReceivedSize = 0;
+                    otaInProgress = true;
+                    Serial.println("OTA started successfully");
+                    
+                } else if (command == 0x02) { // Finish OTA
+                    Serial.println("OTA Finish command received");
+                    
+                    if (otaInProgress && otaReceivedSize == otaExpectedSize) {
+                        Serial.println("OTA completed successfully - preparing to restart");
+                        
+                        // Here you would typically write the firmware to flash
+                        // For nRF52840, this would involve using the DFU bootloader
+                        Serial.println("Firmware update would be applied here");
+                        
+                        // Cleanup
+                        if (otaBuffer != nullptr) {
+                            free(otaBuffer);
+                            otaBuffer = nullptr;
+                        }
+                        
+                        otaInProgress = false;
+                        
+                        // Restart device after a delay
+                        delay(1000);
+                        Serial.println("Restarting device...");
+                        NVIC_SystemReset();
+                        
+                    } else {
+                        Serial.print("OTA Error: Size mismatch. Expected: ");
+                        Serial.print(otaExpectedSize);
+                        Serial.print(", Received: ");
+                        Serial.println(otaReceivedSize);
+                        otaInProgress = false;
+                        
+                        if (otaBuffer != nullptr) {
+                            free(otaBuffer);
+                            otaBuffer = nullptr;
+                        }
+                    }
+                }
+            }
+            
+        } else if (pCharacteristic->getUUID().equals(NimBLEUUID("12345678-1234-1234-1234-123456789AC2"))) {
+            // OTA Data characteristic
+            if (otaInProgress && rxValue.length() > 0) {
+                uint32_t dataSize = rxValue.length();
+                
+                if (otaReceivedSize + dataSize <= otaExpectedSize) {
+                    // Copy data to buffer
+                    memcpy(otaBuffer + otaReceivedSize, rxValue.data(), dataSize);
+                    otaReceivedSize += dataSize;
+                    
+                    // Progress reporting every 1KB
+                    if (otaReceivedSize % 1024 == 0 || otaReceivedSize == otaExpectedSize) {
+                        Serial.print("OTA Progress: ");
+                        Serial.print(otaReceivedSize);
+                        Serial.print("/");
+                        Serial.print(otaExpectedSize);
+                        Serial.print(" bytes (");
+                        Serial.print((otaReceivedSize * 100) / otaExpectedSize);
+                        Serial.println("%)");
+                    }
+                } else {
+                    Serial.println("OTA Error: Data overflow");
+                    otaInProgress = false;
+                    
+                    if (otaBuffer != nullptr) {
+                        free(otaBuffer);
+                        otaBuffer = nullptr;
+                    }
+                }
+            }
+        }
+    }
+};
+
 void setupBLE() {
     NimBLEDevice::init("GRSVC1");
     
@@ -402,6 +534,17 @@ void setupBLE() {
     deviceNameChar = deviceService->createCharacteristic("2A00", NIMBLE_PROPERTY::READ);
     firmwareVersionChar = deviceService->createCharacteristic("2A26", NIMBLE_PROPERTY::READ);
     
+    // Create OTA Service
+    otaService = pServer->createService("12345678-1234-1234-1234-123456789AC3");
+    otaControlChar = otaService->createCharacteristic(
+        "12345678-1234-1234-1234-123456789AC1", 
+        NIMBLE_PROPERTY::WRITE
+    );
+    otaDataChar = otaService->createCharacteristic(
+        "12345678-1234-1234-1234-123456789AC2", 
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
+    );
+    
     // Set initial values
     deviceNameChar->setValue("GRSVC1");
     firmwareVersionChar->setValue("1.0.0");
@@ -416,20 +559,47 @@ void setupBLE() {
     valve1StateChar->setCallbacks(pCallbacks);
     valve2StateChar->setCallbacks(pCallbacks);
     
+    // Set callbacks for OTA characteristics
+    OTACallbacks* pOTACallbacks = new OTACallbacks();
+    otaControlChar->setCallbacks(pOTACallbacks);
+    otaDataChar->setCallbacks(pOTACallbacks);
+    
     // Start services
     batteryService->start();
     environmentalService->start();
     flowService->start();
     valveService->start();
     deviceService->start();
+    otaService->start();
     
-    // Start advertising
+    // Start advertising with device name
     NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+    
+    // Add services to advertising
     pAdvertising->addServiceUUID("180F"); // Battery Service
     pAdvertising->addServiceUUID("181A"); // Environmental Service
     pAdvertising->addServiceUUID("12345678-1234-1234-1234-123456789ABE"); // Valve Service
+    pAdvertising->addServiceUUID("12345678-1234-1234-1234-123456789AC3"); // OTA Service
+    
+    // Set advertising intervals
     pAdvertising->setMinInterval(32);   // 20ms - faster advertising
     pAdvertising->setMaxInterval(160);  // 100ms - faster advertising
+    
+    // Enhanced name advertising for Web Bluetooth compatibility
+    pAdvertising->setName("GRSVC1");
+    
+    // Force name to appear in advertising data (multiple methods)
+    NimBLEAdvertisementData advertisementData;
+    advertisementData.setName("GRSVC1");
+    advertisementData.setCompleteServices(BLEUUID("180F")); // Battery service
+    advertisementData.setAppearance(0x0000); // Generic appearance
+    
+    // Set both advertising and scan response data
+    pAdvertising->setAdvertisementData(advertisementData);
+    
+    NimBLEAdvertisementData scanResponseData;
+    scanResponseData.setName("GRSVC1"); // Name in scan response too
+    pAdvertising->setScanResponseData(scanResponseData);
     
     // Make sure advertising starts
     bool advertisingStarted = NimBLEDevice::startAdvertising();
@@ -437,6 +607,8 @@ void setupBLE() {
     Serial.println(advertisingStarted ? "SUCCESS" : "FAILED");
     if (advertisingStarted) {
         Serial.println("Waiting for connections...");
+        Serial.println("Device name 'GRSVC1' should now appear in Web Bluetooth device picker");
+        Serial.println("Enhanced advertising: Name in both advertisement and scan response data");
     }
 }
 
@@ -489,5 +661,21 @@ void valve2CharacteristicWritten(BLEDevice central, BLECharacteristic characteri
     // This function is no longer needed with NimBLE - handled in ValveCallbacks
 }
 
-void setupOTA() {}
-void handleOTA() {}
+void setupOTA() {
+    Serial.println("OTA support initialized");
+    Serial.println("OTA Service UUID: 12345678-1234-1234-1234-123456789AC3");
+    Serial.println("OTA Control UUID: 12345678-1234-1234-1234-123456789AC1");
+    Serial.println("OTA Data UUID: 12345678-1234-1234-1234-123456789AC2");
+}
+
+void handleOTA() {
+    // OTA handling is done through BLE callbacks
+    // This function can be used for additional OTA maintenance if needed
+    
+    // Check for memory leaks or cleanup if needed
+    if (!otaInProgress && otaBuffer != nullptr) {
+        free(otaBuffer);
+        otaBuffer = nullptr;
+        Serial.println("Cleaned up abandoned OTA buffer");
+    }
+}

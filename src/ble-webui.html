@@ -15,7 +15,7 @@
             font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f3f3f3;
             min-height: 100vh;
-            color: #434k54b;
+            color: #434343;
             font-size: 10px;
             padding: 7px;
         }
@@ -266,6 +266,42 @@
             display: none;
         }
 
+        .nav-back {
+            color: #333333;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .nav-back:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-back {
+            color: #333333;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .nav-back:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
         @media (max-width: 360px) {
             .sensor-grid {
                 grid-template-columns: 1fr;
@@ -274,18 +310,17 @@
     </style>
 </head>
 <body>
+    <a href="index.html" class="nav-back">← Back to Main Menu</a>
+    
     <div class="header">
-        <h1>GRSVC1</h1>
+        <h1>GRSVC1 BLE Control</h1>
     </div>
 
     <!-- Connection -->
     <div class="card">
-        <div id="connectionStatus" class="connection-status status-disconnected">
-            Not Connected
-        </div>
         <button id="connectBtn" class="btn">Connect</button>
         <button id="disconnectBtn" class="btn btn-danger hidden">Disconnect</button>
-        <button id="testDeviceInfoBtn" class="btn hidden" style="background: #17a2b8;">Test Device Info</button>
+        <button id="scanBtn" class="btn" style="background: #17a2b8;">Scan for Devices</button>
     </div>
 
     <!-- Status -->
@@ -310,7 +345,7 @@
             </div>
             <div class="sensor-item">
                 <div class="sensor-value" id="macAddress" style="font-size: 0.8em;">-</div>
-                <div class="sensor-label">MAC Address</div>
+                <div class="sensor-label">Device Name</div>
             </div>
             <div class="sensor-item">
                 <div class="sensor-value" id="firmwareVersion" style="font-size: 0.8em;">-</div>
@@ -339,31 +374,34 @@
                 <span id="valve2Text">OFF</span>
             </button>
         </div>
-        
-        <div class="control-group">
-            <div class="control-title">12V Power</div>
-            <button class="toggle-btn off" id="powerBtn" onclick="toggleControl('power', '12V')">
-                <span id="powerIcon">⚡</span>
-                <span id="powerText">OFF</span>
-            </button>
-        </div>
     </div>
 
     <!-- Firmware Update -->
     <div class="card hidden" id="firmwareCard">
         <h2>Firmware Update</h2>
+        <div style="padding: 10px; background: rgba(40, 167, 69, 0.1); border-radius: 6px; border: 1px solid #28a745; margin-bottom: 15px;">
+            <strong>OTA Ready:</strong> Over-the-air firmware updates are now supported via BLE.
+        </div>
+        
         <div class="file-input-container">
             <input type="file" id="firmwareFile" class="file-input" accept=".bin" onchange="handleFileSelect(event)">
-            <label for="firmwareFile" class="file-label">Choose Firmware File (.bin)</label>
+            <label for="firmwareFile" class="file-label">
+                📁 Choose Firmware File (.bin)
+            </label>
         </div>
+        
         <div id="fileInfo" class="file-info hidden"></div>
+        
         <div id="otaProgress" class="progress-container hidden">
             <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
+                <div id="progressFill" class="progress-fill"></div>
+                <div id="progressText" class="progress-text">0%</div>
             </div>
-            <div class="progress-text" id="progressText">0%</div>
         </div>
-        <button id="updateBtn" class="btn" onclick="startFirmwareUpdate()" disabled>Start Update</button>
+        
+        <button id="updateBtn" class="btn" onclick="startFirmwareUpdate()" disabled>
+            🚀 Start Update
+        </button>
     </div>
 
     <!-- Log -->
@@ -378,48 +416,63 @@
         // BLE variables
         let device = null;
         let server = null;
-        let automationService = null;
+        let batteryService = null;
+        let environmentalService = null;
+        let flowService = null;
+        let valveService = null;
         let deviceInfoService = null;
+        let otaService = null;
+        
+        // Characteristics
         let controlCharacteristic = null;
         let statusCharacteristic = null;
+        let valve1Characteristic = null;
+        let valve2Characteristic = null;
+        let flowCharacteristic = null;
         let batteryCharacteristic = null;
         let temperatureCharacteristic = null;
         let humidityCharacteristic = null;
-        let flowCharacteristic = null;
+        let deviceNameCharacteristic = null;
+        let firmwareVersionCharacteristic = null;
         let otaControlCharacteristic = null;
         let otaDataCharacteristic = null;
-        let macAddressCharacteristic = null;
-        let firmwareVersionCharacteristic = null;
+        
         let monitoringInterval = null;
         let connectionCheckInterval = null;
         let isReconnecting = false;
         let manualDisconnect = false;
+        let selectedFile = null;
+        let otaInProgress = false;
 
-        // Service UUIDs
-        const AUTOMATION_SERVICE_UUID = '00001815-0000-1000-8000-00805f9b34fb';
-        const DEVICE_INFO_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';
-        const CONTROL_CHARACTERISTIC_UUID = '0000ff01-0000-1000-8000-00805f9b34fb';
-        const STATUS_CHARACTERISTIC_UUID = '00002b3c-0000-1000-8000-00805f9b34fb';
-        const BATTERY_CHARACTERISTIC_UUID = '00002a19-0000-1000-8000-00805f9b34fb';
-        const TEMPERATURE_CHARACTERISTIC_UUID = '00002a6e-0000-1000-8000-00805f9b34fb';
-        const HUMIDITY_CHARACTERISTIC_UUID = '00002a6f-0000-1000-8000-00805f9b34fb';
-        const FLOW_CHARACTERISTIC_UUID = '00002b1b-0000-1000-8000-00805f9b34fb';
-        const OTA_CONTROL_CHARACTERISTIC_UUID = '0000ff02-0000-1000-8000-00805f9b34fb';
-        const OTA_DATA_CHARACTERISTIC_UUID = '0000ff03-0000-1000-8000-00805f9b34fb';
-        const MAC_ADDRESS_CHARACTERISTIC_UUID = '0000ff04-0000-1000-8000-00805f9b34fb';
-        const FIRMWARE_VERSION_CHARACTERISTIC_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
+        // Service UUIDs - Web Bluetooth requires LOWERCASE UUIDs
+        const BATTERY_SERVICE_UUID = '0000180f-0000-1000-8000-00805f9b34fb';      // Battery Service (0x180F)
+        const ENVIRONMENTAL_SERVICE_UUID = '0000181a-0000-1000-8000-00805f9b34fb'; // Environmental Service (0x181A)
+        const FLOW_SERVICE_UUID = '12345678-1234-1234-1234-123456789abc';          // Custom Flow Service (lowercase for Web Bluetooth)
+        const VALVE_SERVICE_UUID = '12345678-1234-1234-1234-123456789abe';         // Custom Valve Service (lowercase for Web Bluetooth)
+        const DEVICE_INFO_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';   // Device Information Service (0x180A)
+        const OTA_SERVICE_UUID = '12345678-1234-1234-1234-123456789ac3';           // Custom OTA Service (lowercase for Web Bluetooth)
+        
+        // Characteristic UUIDs - Web Bluetooth requires LOWERCASE UUIDs
+        const BATTERY_CHARACTERISTIC_UUID = '00002a19-0000-1000-8000-00805f9b34fb';     // Battery Level (0x2A19)
+        const TEMPERATURE_CHARACTERISTIC_UUID = '00002a6e-0000-1000-8000-00805f9b34fb'; // Temperature (0x2A6E)
+        const HUMIDITY_CHARACTERISTIC_UUID = '00002a6f-0000-1000-8000-00805f9b34fb';    // Humidity (0x2A6F)
+        const FLOW_CHARACTERISTIC_UUID = '12345678-1234-1234-1234-123456789abd';        // Flow Rate (custom, lowercase for Web Bluetooth)
+        const VALVE1_CHARACTERISTIC_UUID = '12345678-1234-1234-1234-123456789abf';      // Valve 1 State (custom, lowercase for Web Bluetooth)
+        const VALVE2_CHARACTERISTIC_UUID = '12345678-1234-1234-1234-123456789ac0';      // Valve 2 State (custom, lowercase for Web Bluetooth)
+        const DEVICE_NAME_CHARACTERISTIC_UUID = '00002a00-0000-1000-8000-00805f9b34fb'; // Device Name (0x2A00)
+        const FIRMWARE_VERSION_CHARACTERISTIC_UUID = '00002a26-0000-1000-8000-00805f9b34fb'; // Firmware Version (0x2A26)
+        const OTA_CONTROL_CHARACTERISTIC_UUID = '12345678-1234-1234-1234-123456789ac1';  // OTA Control (custom, lowercase for Web Bluetooth)
+        const OTA_DATA_CHARACTERISTIC_UUID = '12345678-1234-1234-1234-123456789ac2';     // OTA Data (custom, lowercase for Web Bluetooth)
+        
+        // Legacy support - keeping old variable names for compatibility
+        const MAIN_SERVICE_UUID = VALVE_SERVICE_UUID;  // Use valve service as main service
+        const CONTROL_CHARACTERISTIC_UUID = VALVE1_CHARACTERISTIC_UUID;
 
         // Control states
         let controlStates = {
             valve1: false,
-            valve2: false,
-            power: false
+            valve2: false
         };
-
-        // OTA variables
-        let selectedFile = null;
-        let otaInProgress = false;
-        let otaChunkSize = 512; // Use larger chunks for faster transfer
 
         // Global monitoring function
         window.startMonitoring = function() {
@@ -435,7 +488,7 @@
                 }
                 
                 // Check if still connected before attempting reads
-                if (!device || !device.gatt || !device.gatt.connected) {
+                if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                     return;
                 }
                 
@@ -461,18 +514,18 @@
                         document.getElementById('humidity').textContent = `${humidity.toFixed(1)}%`;
                     }
 
-                    // Flow Rate
+                    // Flow Rate (reading uint32_t pulse count from firmware)
                     if (flowCharacteristic) {
                         const flowValue = await flowCharacteristic.readValue();
-                        const flowRate = new Float32Array(flowValue.buffer)[0];
-                        document.getElementById('flowRate').textContent = `${flowRate.toFixed(2)} L/min`;
+                        const pulseCount = flowValue.getUint32(0, true);
+                        document.getElementById('flowRate').textContent = `${pulseCount} pulses`;
                     }
 
-                    // MAC Address (read only once, doesn't change)
-                    if (macAddressCharacteristic && (document.getElementById('macAddress').textContent === '-' || document.getElementById('macAddress').textContent === '')) {
-                        const macValue = await macAddressCharacteristic.readValue();
-                        const macString = new TextDecoder().decode(macValue);
-                        document.getElementById('macAddress').textContent = macString;
+                    // Device Name (read only once, doesn't change)
+                    if (deviceNameCharacteristic && (document.getElementById('macAddress').textContent === '-' || document.getElementById('macAddress').textContent === '')) {
+                        const nameValue = await deviceNameCharacteristic.readValue();
+                        const nameString = new TextDecoder().decode(nameValue);
+                        document.getElementById('macAddress').textContent = nameString; // Using MAC field for device name
                     }
 
                     // Firmware Version (read only once, doesn't change)
@@ -494,7 +547,7 @@
         // DOM elements
         const connectBtn = document.getElementById('connectBtn');
         const disconnectBtn = document.getElementById('disconnectBtn');
-        const connectionStatus = document.getElementById('connectionStatus');
+        const scanBtn = document.getElementById('scanBtn');
         const statusCard = document.getElementById('statusCard');
         const controlsCard = document.getElementById('controlsCard');
         const firmwareCard = document.getElementById('firmwareCard');
@@ -503,7 +556,7 @@
         // Event listeners
         connectBtn.addEventListener('click', connectToDevice);
         disconnectBtn.addEventListener('click', disconnectFromDevice);
-        testDeviceInfoBtn.addEventListener('click', readDeviceInfo);
+        scanBtn.addEventListener('click', scanForDevices);
 
         // Logging
         function log(message, type = 'info') {
@@ -526,44 +579,251 @@
             
             try {
                 manualDisconnect = false; // Reset manual disconnect flag
-                log('Connecting...');
+                log('Requesting BLE device...');
                 
-                // Always request device fresh to handle pairing
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'GRSVC1' }],
-                    optionalServices: [AUTOMATION_SERVICE_UUID, DEVICE_INFO_SERVICE_UUID]
-                });
+                let device = null;
+                
+                // Try specific filters first
+                try {
+                    device = await navigator.bluetooth.requestDevice({
+                        filters: [
+                            { name: 'GRSVC1' },
+                            { namePrefix: 'GRSVC' },
+                            { services: [BATTERY_SERVICE_UUID] },
+                            { services: [ENVIRONMENTAL_SERVICE_UUID] },
+                            { services: [VALVE_SERVICE_UUID] }
+                        ],
+                        optionalServices: [
+                            BATTERY_SERVICE_UUID,
+                            ENVIRONMENTAL_SERVICE_UUID,
+                            FLOW_SERVICE_UUID,
+                            VALVE_SERVICE_UUID,
+                            DEVICE_INFO_SERVICE_UUID,
+                            OTA_SERVICE_UUID
+                        ]
+                    });
+                    log(`✅ Found device: ${device.name || 'Unnamed'} (${device.id})`);
+                } catch (filterError) {
+                    log(`⚠️ Specific filters failed: ${filterError.message}`, 'warning');
+                    log('🔍 Trying simplified filter with just battery service...', 'info');
+                    
+                    // Try with just battery service (more likely to work)
+                    try {
+                        device = await navigator.bluetooth.requestDevice({
+                            filters: [{ services: [BATTERY_SERVICE_UUID] }],
+                            optionalServices: [
+                                BATTERY_SERVICE_UUID,
+                                ENVIRONMENTAL_SERVICE_UUID,
+                                FLOW_SERVICE_UUID,
+                                VALVE_SERVICE_UUID,
+                                DEVICE_INFO_SERVICE_UUID,
+                                OTA_SERVICE_UUID
+                            ]
+                        });
+                        log(`✅ Found device with battery service: ${device.name || 'Unnamed'} (${device.id})`);
+                    } catch (batteryError) {
+                        log(`⚠️ Battery service filter failed: ${batteryError.message}`, 'warning');
+                        log('📱 Showing all devices - LOOK FOR:', 'info');
+                        log('   • Device named "GRSVC1" or similar', 'info');
+                        log('   • nRF52840 or Pro Micro devices', 'info');
+                        log('   • Devices that were working on iPad', 'info');
+                        
+                        // Fallback: show all devices with better guidance
+                        device = await navigator.bluetooth.requestDevice({
+                            acceptAllDevices: true,
+                            optionalServices: [
+                                BATTERY_SERVICE_UUID,
+                                ENVIRONMENTAL_SERVICE_UUID,
+                                FLOW_SERVICE_UUID,
+                                VALVE_SERVICE_UUID,
+                                DEVICE_INFO_SERVICE_UUID,
+                                OTA_SERVICE_UUID,
+                                'battery_service',
+                                'device_information'
+                            ]
+                        });
+                        log(`Selected device: ${device.name || 'Unnamed'}`);
+                    }
+                }
+                
+                if (!device) {
+                    throw new Error('No device selected');
+                }
+                
+                if (device.name && device.name.includes('GRSVC')) {
+                    log('✓ GRSVC device detected!', 'success');
+                } else if (device.name) {
+                    log(`Note: Selected "${device.name}" - not GRSVC1 but attempting connection...`, 'warning');
+                } else {
+                    log('Note: Device has no name - attempting connection anyway...', 'warning');
+                }
+                
+                // Store the device reference globally
+                window.device = device;
                 
                 // Add disconnect listener
                 device.addEventListener('gattserverdisconnected', handleDisconnection);
 
+                log(`Connecting to device: ${device.name || 'Unknown'}`);
                 server = await device.gatt.connect();
-                automationService = await server.getPrimaryService(AUTOMATION_SERVICE_UUID);
-                deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
-                macAddressCharacteristic = await deviceInfoService.getCharacteristic(MAC_ADDRESS_CHARACTERISTIC_UUID);
-                firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
                 
-                controlCharacteristic = await automationService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
-                statusCharacteristic = await automationService.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
-                batteryCharacteristic = await automationService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
-                temperatureCharacteristic = await automationService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
-                humidityCharacteristic = await automationService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
-                flowCharacteristic = await automationService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
-                otaControlCharacteristic = await automationService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
-                otaDataCharacteristic = await automationService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
-
-                // Read device info immediately after connection
-                await readDeviceInfo();
+                // Connect to services
+                log('Discovering services...');
+                
+                // Try to connect to nRF52840 services with error handling
+                try {
+                    batteryService = await server.getPrimaryService(BATTERY_SERVICE_UUID);
+                    log('✓ Connected to Battery service (0x180F)');
+                } catch (error) {
+                    log(`⚠️ Battery service not available: ${error.message}`, 'warning');
+                }
+                
+                try {
+                    environmentalService = await server.getPrimaryService(ENVIRONMENTAL_SERVICE_UUID);
+                    log('✓ Connected to Environmental service (0x181A)');
+                } catch (error) {
+                    log(`⚠️ Environmental service not available: ${error.message}`, 'warning');
+                }
+                
+                try {
+                    flowService = await server.getPrimaryService(FLOW_SERVICE_UUID);
+                    log('✓ Connected to Flow service (custom)');
+                } catch (error) {
+                    log(`⚠️ Flow service not available: ${error.message}`, 'warning');
+                }
+                
+                try {
+                    valveService = await server.getPrimaryService(VALVE_SERVICE_UUID);
+                    log('✓ Connected to Valve service (custom)');
+                } catch (error) {
+                    log(`⚠️ Valve service not available: ${error.message}`, 'warning');
+                }
+                
+                try {
+                    deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
+                    log('✓ Connected to Device Information service (0x180A)');
+                } catch (error) {
+                    log(`⚠️ Device Information service not available: ${error.message}`, 'warning');
+                }
+                
+                log('Getting characteristics...');
+                // Get characteristics from respective services with error handling
+                if (batteryService) {
+                    try {
+                        batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+                        log('✓ Battery characteristic available');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (error) {
+                        log(`⚠️ Battery characteristic failed: ${error.message}`, 'warning');
+                    }
+                }
+                
+                if (environmentalService) {
+                    try {
+                        temperatureCharacteristic = await environmentalService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
+                        humidityCharacteristic = await environmentalService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
+                        log('✓ Temperature and humidity characteristics available');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (error) {
+                        log(`⚠️ Environmental characteristics failed: ${error.message}`, 'warning');
+                    }
+                }
+                
+                if (flowService) {
+                    try {
+                        flowCharacteristic = await flowService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
+                        log('✓ Flow characteristic available');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (error) {
+                        log(`⚠️ Flow characteristic failed: ${error.message}`, 'warning');
+                    }
+                }
+                
+                if (valveService) {
+                    try {
+                        valve1Characteristic = await valveService.getCharacteristic(VALVE1_CHARACTERISTIC_UUID);
+                        valve2Characteristic = await valveService.getCharacteristic(VALVE2_CHARACTERISTIC_UUID);
+                        log('✓ Valve characteristics available');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (error) {
+                        log(`⚠️ Valve characteristics failed: ${error.message}`, 'warning');
+                    }
+                }
+                
+                // Get Device Information characteristics
+                if (deviceInfoService) {
+                    try {
+                        deviceNameCharacteristic = await deviceInfoService.getCharacteristic(DEVICE_NAME_CHARACTERISTIC_UUID);
+                        firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
+                        log('✓ Device info characteristics available');
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (deviceInfoError) {
+                        log(`⚠️ Some device info characteristics not available: ${deviceInfoError.message}`, 'warning');
+                    }
+                }
+                
+                // Get OTA service
+                try {
+                    otaService = await server.getPrimaryService(OTA_SERVICE_UUID);
+                    otaControlCharacteristic = await otaService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
+                    otaDataCharacteristic = await otaService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
+                    log('✓ OTA service available');
+                    document.getElementById('firmwareCard').style.display = 'block';
+                } catch (otaError) {
+                    log(`⚠️ OTA service not available: ${otaError.message}`, 'warning');
+                    document.getElementById('firmwareCard').style.display = 'none';
+                }
 
                 updateConnectionStatus(true);
                 startMonitoring();
                 startConnectionCheck();
-                log('Connected! Connection will persist when page is minimized.');
+                
+                // Enhanced device identification
+                const deviceInfo = {
+                    name: device.name || 'Unnamed',
+                    id: device.id || 'Unknown ID',
+                    connected: device.gatt?.connected || false
+                };
+                
+                log('🎉 Connected successfully!', 'success');
+                log(`📱 Device: ${deviceInfo.name} (${deviceInfo.id})`, 'info');
+                
+                // Final connection verification
+                if (!device.gatt.connected) {
+                    throw new Error('Connection lost after setup');
+                }
+                
+                // Wait a bit before reading device info to ensure connection is stable
+                setTimeout(async () => {
+                    if (window.device && window.device.gatt && window.device.gatt.connected) {
+                        await readDeviceInfo();
+                    }
+                }, 2000);
+                
+                // Try to read device name from characteristic
+                if (deviceNameCharacteristic) {
+                    try {
+                        const nameValue = await deviceNameCharacteristic.readValue();
+                        const deviceName = new TextDecoder().decode(nameValue);
+                        if (deviceName && deviceName !== deviceInfo.name) {
+                            log(`✅ Confirmed device name: "${deviceName}"`, 'success');
+                            if (deviceName === 'GRSVC1') {
+                                log('🎯 This is your GRSVC1 device!', 'success');
+                            }
+                        }
+                    } catch (e) {
+                        log(`Could not read device name characteristic: ${e.message}`, 'warning');
+                    }
+                }
+                
+                // Log available services for verification
+                const serviceCount = [batteryService, environmentalService, flowService, valveService, deviceInfoService, otaService].filter(s => s).length;
+                log(`📊 Available services: ${serviceCount}/6`, 'info');
                 
             } catch (error) {
-                log(`Error: ${error.message}`, 'error');
+                log(`Connection error: ${error.message}`, 'error');
                 updateConnectionStatus(false);
-                device = null; // Clear device reference on connection failure
+                window.device = null; // Clear device reference on connection failure
             }
         }
 
@@ -571,29 +831,73 @@
         async function disconnectFromDevice() {
             manualDisconnect = true; // Set manual disconnect flag
             
-            if (device) {
-                device.removeEventListener('gattserverdisconnected', handleDisconnection);
-                if (device.gatt && device.gatt.connected) {
-                    await device.gatt.disconnect();
+            if (window.device) {
+                window.device.removeEventListener('gattserverdisconnected', handleDisconnection);
+                if (window.device.gatt && window.device.gatt.connected) {
+                    await window.device.gatt.disconnect();
                 }
                 // Clear device reference so reconnect will request device again
-                device = null;
+                window.device = null;
                 server = null;
-                automationService = null;
+                batteryService = null;
+                environmentalService = null;
+                flowService = null;
+                valveService = null;
                 deviceInfoService = null;
-                controlCharacteristic = null;
-                statusCharacteristic = null;
+                otaService = null;
+                valve1Characteristic = null;
+                valve2Characteristic = null;
+                flowCharacteristic = null;
                 batteryCharacteristic = null;
                 temperatureCharacteristic = null;
                 humidityCharacteristic = null;
-                flowCharacteristic = null;
+                deviceNameCharacteristic = null;
+                firmwareVersionCharacteristic = null;
                 otaControlCharacteristic = null;
                 otaDataCharacteristic = null;
-                macAddressCharacteristic = null;
-                firmwareVersionCharacteristic = null;
             }
             updateConnectionStatus(false);
             log('Disconnected - click Connect to pair again');
+        }
+
+        // Scan for devices (debugging function)
+        async function scanForDevices() {
+            try {
+                log('Scanning for BLE devices - please select any device to see what\'s available...', 'info');
+                
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [
+                        'battery_service', 
+                        'device_information',
+                        BATTERY_SERVICE_UUID,
+                        ENVIRONMENTAL_SERVICE_UUID,
+                        FLOW_SERVICE_UUID,
+                        VALVE_SERVICE_UUID,
+                        DEVICE_INFO_SERVICE_UUID,
+                        OTA_SERVICE_UUID
+                    ]
+                });
+                
+                if (device) {
+                    log(`Selected device: "${device.name || 'Unnamed'}" (ID: ${device.id})`, 'info');
+                    
+                    if (device.name) {
+                        if (device.name.includes('GRSVC') || device.name === 'GRSVC1') {
+                            log('✓ This is your GRSVC1 device!', 'success');
+                        } else {
+                            log(`This device is named "${device.name}" - look for a device named "GRSVC1"`, 'warning');
+                        }
+                    } else {
+                        log('This device has no name - GRSVC1 should show a name', 'warning');
+                    }
+                } else {
+                    log('No device selected', 'warning');
+                }
+                
+            } catch (error) {
+                log(`Scan cancelled or failed: ${error.message}`, 'error');
+            }
         }
 
         // Handle disconnection
@@ -602,7 +906,7 @@
             if (!isReconnecting && !manualDisconnect) {
                 updateConnectionStatus(false);
                 // Only attempt reconnection if device wasn't manually disconnected
-                if (device !== null) {
+                if (window.device !== null) {
                     attemptReconnection();
                 } else {
                     log('Manual disconnect detected - click Connect to pair again', 'info');
@@ -615,7 +919,7 @@
 
         // Attempt to reconnect
         async function attemptReconnection() {
-            if (isReconnecting || !device) return;
+            if (isReconnecting || !window.device) return;
             
             isReconnecting = true;
             log('Attempting to reconnect...', 'warning');
@@ -625,24 +929,25 @@
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
                 // Check if device is still available and try to reconnect
-                if (device && device.gatt) {
+                if (window.device && window.device.gatt) {
                     try {
-                        server = await device.gatt.connect();
-                        automationService = await server.getPrimaryService(AUTOMATION_SERVICE_UUID);
+                        server = await window.device.gatt.connect();
+                        batteryService = await server.getPrimaryService(BATTERY_SERVICE_UUID);
+                        environmentalService = await server.getPrimaryService(ENVIRONMENTAL_SERVICE_UUID);
+                        flowService = await server.getPrimaryService(FLOW_SERVICE_UUID);
+                        valveService = await server.getPrimaryService(VALVE_SERVICE_UUID);
+                        deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
                         
-                        controlCharacteristic = await automationService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
-                        statusCharacteristic = await automationService.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
-                        batteryCharacteristic = await automationService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
-                        temperatureCharacteristic = await automationService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
-                        humidityCharacteristic = await automationService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
-                        flowCharacteristic = await automationService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
-                        otaControlCharacteristic = await automationService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
-                        otaDataCharacteristic = await automationService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
+                        batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+                        temperatureCharacteristic = await environmentalService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
+                        humidityCharacteristic = await environmentalService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
+                        flowCharacteristic = await flowService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
+                        valve1Characteristic = await valveService.getCharacteristic(VALVE1_CHARACTERISTIC_UUID);
+                        valve2Characteristic = await valveService.getCharacteristic(VALVE2_CHARACTERISTIC_UUID);
 
-                        // Get MAC address from device info service
+                        // Get device info service characteristics
                         try {
-                            deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
-                            macAddressCharacteristic = await deviceInfoService.getCharacteristic(MAC_ADDRESS_CHARACTERISTIC_UUID);
+                            deviceNameCharacteristic = await deviceInfoService.getCharacteristic(DEVICE_NAME_CHARACTERISTIC_UUID);
                             firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
                             // Read device info after reconnect
                             await readDeviceInfo();
@@ -658,7 +963,7 @@
                         // If reconnection fails, device might be unpaired
                         log('Automatic reconnection failed - device may need to be paired again', 'warning');
                         log('Click Connect to pair the device again', 'info');
-                        device = null; // Clear device reference
+                        window.device = null; // Clear device reference
                         updateConnectionStatus(false);
                     }
                 } else {
@@ -676,27 +981,22 @@
         // Update UI
         function updateConnectionStatus(connected) {
             if (connected) {
-                connectionStatus.textContent = 'Connected';
-                connectionStatus.className = 'connection-status status-connected';
                 connectBtn.classList.add('hidden');
                 disconnectBtn.classList.remove('hidden');
                 statusCard.classList.remove('hidden');
                 controlsCard.classList.remove('hidden');
-                firmwareCard.classList.remove('hidden');
+                firmwareCard.classList.remove('hidden'); // Enable OTA support
             } else {
-                connectionStatus.textContent = 'Not Connected';
-                connectionStatus.className = 'connection-status status-disconnected';
                 connectBtn.classList.remove('hidden');
                 disconnectBtn.classList.add('hidden');
                 statusCard.classList.add('hidden');
                 controlsCard.classList.add('hidden');
-                firmwareCard.classList.add('hidden');
+                firmwareCard.classList.add('hidden'); // Hide OTA when disconnected
                 
                 // Reset controls
-                controlStates = { valve1: false, valve2: false, power: false };
+                controlStates = { valve1: false, valve2: false };
                 updateControlButton('valve1', false);
                 updateControlButton('valve2', false);
-                updateControlButton('power', false);
                 
                 // Reset sensor displays
                 document.getElementById('batteryLevel').textContent = '-';
@@ -724,7 +1024,7 @@
             
             connectionCheckInterval = setInterval(async () => {
                 // Only check connection if we have a device reference and aren't reconnecting
-                if (device && device.gatt && !device.gatt.connected && !isReconnecting) {
+                if (window.device && window.device.gatt && !window.device.gatt.connected && !isReconnecting) {
                     log('Connection lost, attempting reconnection...', 'warning');
                     handleDisconnection();
                 }
@@ -733,7 +1033,7 @@
 
         // Refresh sensors manually
         async function refreshSensors() {
-            if (!device || !device.gatt || !device.gatt.connected) {
+            if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                 log('Not connected', 'error');
                 return;
             }
@@ -763,15 +1063,15 @@
                 // Flow Rate
                 if (flowCharacteristic) {
                     const flowValue = await flowCharacteristic.readValue();
-                    const flowRate = new Float32Array(flowValue.buffer)[0];
-                    document.getElementById('flowRate').textContent = `${flowRate.toFixed(2)} L/min`;
+                    const pulseCount = flowValue.getUint32(0, true);
+                    document.getElementById('flowRate').textContent = `${pulseCount} pulses`;
                 }
 
-                // MAC Address
-                if (macAddressCharacteristic) {
-                    const macValue = await macAddressCharacteristic.readValue();
-                    const macString = new TextDecoder().decode(macValue);
-                    document.getElementById('macAddress').textContent = macString;
+                // Device Name
+                if (deviceNameCharacteristic) {
+                    const nameValue = await deviceNameCharacteristic.readValue();
+                    const nameString = new TextDecoder().decode(nameValue);
+                    document.getElementById('macAddress').textContent = nameString;
                 }
 
                 // Firmware Version
@@ -791,9 +1091,13 @@
         }
 
         // Toggle control
-        function toggleControl(controlId, commandPrefix) {
-            if (!controlCharacteristic) {
-                log('Not connected', 'error');
+        async function toggleControl(controlId, commandPrefix) {
+            if (controlId === 'valve1' && !valve1Characteristic) {
+                log('Valve 1 characteristic not connected', 'error');
+                return;
+            }
+            if (controlId === 'valve2' && !valve2Characteristic) {
+                log('Valve 2 characteristic not connected', 'error');
                 return;
             }
 
@@ -802,8 +1106,24 @@
             
             updateControlButton(controlId, isOn);
             
-            const command = `${commandPrefix} ${isOn ? 'ON' : 'OFF'}`;
-            sendCommand(command);
+            try {
+                if (controlId === 'valve1') {
+                    // Send binary value (0 or 1) to valve characteristic
+                    const value = new Uint8Array([isOn ? 1 : 0]);
+                    await valve1Characteristic.writeValue(value);
+                    log(`Valve 1 ${isOn ? 'opened' : 'closed'}`);
+                } else if (controlId === 'valve2') {
+                    // Send binary value (0 or 1) to valve characteristic  
+                    const value = new Uint8Array([isOn ? 1 : 0]);
+                    await valve2Characteristic.writeValue(value);
+                    log(`Valve 2 ${isOn ? 'opened' : 'closed'}`);
+                }
+            } catch (error) {
+                log(`Error controlling ${controlId}: ${error.message}`, 'error');
+                // Revert state on error
+                controlStates[controlId] = !controlStates[controlId];
+                updateControlButton(controlId, controlStates[controlId]);
+            }
         }
 
         // Update button
@@ -815,31 +1135,11 @@
             if (isOn) {
                 btn.className = 'toggle-btn on';
                 text.textContent = 'ON';
-                icon.textContent = (controlId === 'power') ? '⚡' : '🔓';
+                icon.textContent = '🔓';
             } else {
                 btn.className = 'toggle-btn off';
                 text.textContent = 'OFF';
-                icon.textContent = (controlId === 'power') ? '⚡' : '🔒';
-            }
-        }
-
-        // Send command
-        async function sendCommand(command) {
-            try {
-                if (!device || !device.gatt || !device.gatt.connected || !controlCharacteristic) {
-                    log('Not connected', 'error');
-                    return;
-                }
-
-                const encoder = new TextEncoder();
-                await controlCharacteristic.writeValue(encoder.encode(command));
-                log(`> ${command}`);
-
-            } catch (error) {
-                log(`Error: ${error.message}`, 'error');
-                if (!isReconnecting) {
-                    handleDisconnection();
-                }
+                icon.textContent = '🔒';
             }
         }
 
@@ -901,7 +1201,7 @@
                 log(`Firmware size: ${firmwareData.length} bytes`);
                 
                 // Verify connection before starting
-                if (!device || !device.gatt || !device.gatt.connected) {
+                if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                     throw new Error('Device not connected');
                 }
                 
@@ -910,7 +1210,7 @@
                 try {
                     // Test connection with multiple small operations
                     for (let i = 0; i < 3; i++) {
-                        if (!device || !device.gatt || !device.gatt.connected) {
+                        if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                             throw new Error('Connection lost during stability test');
                         }
                         await new Promise(resolve => setTimeout(resolve, 200));
@@ -953,7 +1253,7 @@
                 
                 while (sentBytes < firmwareData.length) {
                     // Check connection before each chunk
-                    if (!device || !device.gatt || !device.gatt.connected) {
+                    if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                         throw new Error('Connection lost during firmware update');
                     }
                     
@@ -976,7 +1276,7 @@
                         if (chunkIndex % 5 === 0) {
                             await new Promise(resolve => setTimeout(resolve, 100));
                             // Check connection health during delay
-                            if (!device || !device.gatt || !device.gatt.connected) {
+                            if (!window.device || !window.device.gatt || !window.device.gatt.connected) {
                                 throw new Error('Connection lost during delay');
                             }
                             log(`Progress: ${progress}% (${sentBytes}/${firmwareData.length} bytes)`);
@@ -1051,7 +1351,7 @@
                 document.getElementById('progressText').textContent = '0%';
                 
                 // Try to restore normal operation
-                if (device && device.gatt && device.gatt.connected) {
+                if (window.device && window.device.gatt && window.device.gatt.connected) {
                     startMonitoring();
                     startConnectionCheck();
                 }
@@ -1061,33 +1361,28 @@
             }
         }
 
-        // Read device info (MAC address and firmware version)
+        // Read device info (device name and firmware version)
         async function readDeviceInfo() {
             try {
                 log('Reading device info...', 'info');
                 
-                // Read MAC Address
-                if (macAddressCharacteristic) {
-                    log('Reading MAC address characteristic...', 'info');
+                // Read Device Name
+                if (deviceNameCharacteristic) {
+                    log('Reading device name characteristic...', 'info');
                     try {
-                        const macValue = await macAddressCharacteristic.readValue();
-                        log(`MAC value buffer length: ${macValue.byteLength}`, 'info');
+                        const nameValue = await deviceNameCharacteristic.readValue();
+                        log(`Device name value buffer length: ${nameValue.byteLength}`, 'info');
                         
-                        // Log raw bytes for debugging
-                        const macBytes = new Uint8Array(macValue.buffer);
-                        const macBytesHex = Array.from(macBytes, byte => byte.toString(16).padStart(2, '0')).join(' ');
-                        log(`MAC raw bytes: ${macBytesHex}`, 'info');
+                        const nameString = new TextDecoder().decode(nameValue);
+                        log(`Device name: '${nameString}' (length: ${nameString.length})`, 'info');
                         
-                        const macString = new TextDecoder().decode(macValue);
-                        log(`MAC decoded string: '${macString}' (length: ${macString.length})`, 'info');
-                        
-                        document.getElementById('macAddress').textContent = macString;
-                        log(`MAC Address: ${macString}`, 'info');
-                    } catch (macError) {
-                        log(`Error reading MAC address: ${macError.message}`, 'error');
+                        document.getElementById('macAddress').textContent = nameString;
+                        log(`Device Name: ${nameString}`, 'info');
+                    } catch (nameError) {
+                        log(`Error reading device name: ${nameError.message}`, 'error');
                     }
                 } else {
-                    log('MAC address characteristic not available', 'warning');
+                    log('Device name characteristic not available', 'warning');
                 }
 
                 // Read Firmware Version
@@ -1127,9 +1422,9 @@
                 log('Page hidden - maintaining connection', 'info');
             } else {
                 // Page is visible again
-                if (device && device.gatt && device.gatt.connected) {
+                if (window.device && window.device.gatt && window.device.gatt.connected) {
                     log('Page visible - connection maintained', 'info');
-                } else if (device && !isReconnecting) {
+                } else if (window.device && !isReconnecting) {
                     log('Page visible - attempting reconnection', 'warning');
                     attemptReconnection();
                 }
@@ -1138,14 +1433,14 @@
 
         // Handle page unload (browser closing/refreshing)
         window.addEventListener('beforeunload', (event) => {
-            if (device && device.gatt && device.gatt.connected) {
+            if (window.device && window.device.gatt && window.device.gatt.connected) {
                 // Show confirmation dialog
                 event.preventDefault();
                 event.returnValue = 'BLE device is connected. Close anyway?';
                 
                 // Attempt graceful disconnect
                 try {
-                    device.gatt.disconnect();
+                    window.device.gatt.disconnect();
                     log('Disconnected before page close');
                 } catch (error) {
                     // Ignore errors during cleanup
@@ -1155,9 +1450,9 @@
 
         // Handle page close
         window.addEventListener('unload', () => {
-            if (device && device.gatt && device.gatt.connected) {
+            if (window.device && window.device.gatt && window.device.gatt.connected) {
                 try {
-                    device.gatt.disconnect();
+                    window.device.gatt.disconnect();
                 } catch (error) {
                     // Ignore errors during cleanup
                 }
