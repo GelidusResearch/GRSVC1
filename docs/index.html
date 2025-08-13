@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GRSVC1 - Multi-Function Device</title>
+    <title>GRSVC1 Firmware Update Guide</title>
     <style>
         * {
             margin: 0;
@@ -12,381 +12,421 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background: linear-gradient(135deg, #43454b 0%, #4b6fa2 100%);
             min-height: 100vh;
             color: #333;
             padding: 20px;
         }
 
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
         }
 
         .header {
-            text-align: center;
+            background: linear-gradient(135deg, #282b38 0%, #2c3138 100%);
             color: white;
-            margin-bottom: 40px;
+            padding: 40px;
+            text-align: center;
         }
 
         .header h1 {
-            font-size: 3em;
+            font-size: 2.5em;
             margin-bottom: 10px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            font-weight: 300;
         }
 
         .header p {
-            font-size: 1.3em;
+            font-size: 1.2em;
             opacity: 0.9;
-            margin-bottom: 10px;
         }
 
-        .version {
-            background: rgba(255, 255, 255, 0.2);
+        .content {
+            padding: 40px;
+        }
+
+        .method-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .method-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 30px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+
+        .method-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            border-color: #353846;
+        }
+
+        .method-card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+
+        .method-card .badge {
+            display: inline-block;
             padding: 5px 15px;
             border-radius: 20px;
-            display: inline-block;
-            font-size: 0.9em;
-        }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        }
-
-        .tools-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .tool-card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            text-align: center;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .tool-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
-        }
-
-        .tool-icon {
-            font-size: 3em;
+            font-size: 0.8em;
+            font-weight: bold;
             margin-bottom: 15px;
         }
 
-        .tool-card h3 {
-            color: #4a5568;
-            margin-bottom: 15px;
-            font-size: 1.4em;
+        .badge.recommended {
+            background: #7a9ba0;
+            color: white;
         }
 
-        .tool-card p {
-            color: #6b7280;
-            margin-bottom: 20px;
-            line-height: 1.6;
+        .badge.advanced {
+            background: #77623e;
+            color: #212529;
+        }
+
+        .pros-cons {
+            margin: 20px 0;
+        }
+
+        .pros, .cons {
+            margin: 10px 0;
+        }
+
+        .pros h4 {
+            color: #344237;
+            margin-bottom: 5px;
+        }
+
+        .cons h4 {
+            color: #4b383a;
+            margin-bottom: 5px;
+        }
+
+        .pros ul, .cons ul {
+            margin-left: 20px;
+        }
+
+        .pros li, .cons li {
+            margin: 5px 0;
+            line-height: 1.5;
         }
 
         .btn {
             display: inline-block;
-            padding: 12px 24px;
-            border-radius: 8px;
+            padding: 15px 30px;
+            background: #66a8ea;
+            color: white;
             text-decoration: none;
-            font-weight: 600;
-            transition: background-color 0.2s ease, transform 0.1s ease;
-            border: none;
-            cursor: pointer;
-            font-size: 1em;
-        }
-
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #5a6fd8;
-            transform: translateY(-1px);
-        }
-
-        .btn-secondary {
-            background: #10b981;
-            color: white;
-        }
-
-        .btn-secondary:hover {
-            background: #059669;
-            transform: translateY(-1px);
-        }
-
-        .features {
-            list-style: none;
-            padding: 0;
-            text-align: left;
-        }
-
-        .features li {
-            padding: 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .features li::before {
-            content: "✓";
-            color: #10b981;
-            font-weight: bold;
-            font-size: 1.2em;
-        }
-
-        .device-info {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
             border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin: 10px 10px 10px 0;
         }
 
-        .device-info h4 {
-            color: #374151;
+        .btn:hover {
+            background: #575864;
+            transform: translateY(-2px);
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .btn.secondary:hover {
+            background: #5a6268;
+        }
+
+        .steps {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .steps h3 {
+            color: #495057;
             margin-bottom: 15px;
         }
 
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+        .steps ol {
+            margin-left: 20px;
         }
 
-        .info-item {
-            background: white;
-            padding: 10px;
-            border-radius: 6px;
-            border-left: 4px solid #667eea;
+        .steps li {
+            margin: 10px 0;
+            line-height: 1.6;
         }
 
-        .info-label {
-            font-size: 0.8em;
-            color: #6b7280;
-            text-transform: uppercase;
-            font-weight: 600;
-        }
-
-        .info-value {
-            font-size: 1.1em;
-            color: #374151;
-            font-weight: 500;
-        }
-
-        .requirements {
-            background: #fffbeb;
-            border: 1px solid #fbbf24;
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
             border-radius: 8px;
             padding: 15px;
             margin: 20px 0;
         }
 
-        .requirements h4 {
-            color: #92400e;
+        .warning h4 {
+            color: #856404;
             margin-bottom: 10px;
         }
 
-        .requirements ul {
-            margin-left: 20px;
-            color: #92400e;
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
         }
 
-        .requirements li {
-            margin: 5px 0;
+        .info h4 {
+            color: #0c5460;
+            margin-bottom: 10px;
         }
 
-        code {
-            background: #f3f4f6;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
+        .firmware-info {
+            background: #e7f3ff;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 30px 0;
+        }
+
+        .firmware-info h3 {
+            color: #0066cc;
+            margin-bottom: 15px;
+        }
+
+        .file-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 15px 0;
+        }
+
+        .file-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+
+        .file-item strong {
+            color: #495057;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .file-item em {
+            color: #6c757d;
             font-size: 0.9em;
         }
 
-        .footer {
-            text-align: center;
-            color: rgba(255, 255, 255, 0.8);
-            margin-top: 40px;
-            padding: 20px 0;
-        }
-
-        .footer a {
-            color: rgba(255, 255, 255, 0.9);
-            text-decoration: none;
-        }
-
-        .footer a:hover {
-            text-decoration: underline;
+        @media (max-width: 768px) {
+            .method-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .file-list {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .content {
+                padding: 20px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔧 GRSVC1</h1>
-            <p>Multi-Function IoT Device</p>
-            <span class="version">Firmware v1.0.0</span>
+            <h1>GRSVC1 Firmware Update</h1>
+            <p>Choose your preferred method to update your GRSVC1 device firmware</p>
         </div>
 
-        <div class="card">
-            <h2 style="text-align: center; margin-bottom: 30px; color: #4a5568;">🚀 Device Management Tools</h2>
-            
-            <div class="tools-grid">
-                <!-- Serial Flash Tool -->
-                <div class="tool-card">
-                    <div class="tool-icon">🔌</div>
-                    <h3>USB Serial Flasher</h3>
-                    <p>Flash firmware directly via USB cable using ESP Web Tools. No additional software required.</p>
-                    <ul class="features">
-                        <li>Direct USB connection</li>
-                        <li>Automatic firmware flashing</li>
-                        <li>Built-in progress monitoring</li>
-                        <li>Works in Chrome/Edge browsers</li>
-                    </ul>
-                    <a href="usb-web-installer-multi.html" class="btn btn-primary">📡 Flash via USB</a>
-                </div>
-
-                <!-- BLE Web Tool -->
-                <div class="tool-card">
-                    <div class="tool-icon">📶</div>
-                    <h3>BLE Web Interface</h3>
-                    <p>Connect wirelessly via Bluetooth Low Energy to monitor sensors and control device functions.</p>
-                    <ul class="features">
-                        <li>Wireless BLE connection</li>
-                        <li>Real-time sensor data</li>
-                        <li>Device control interface</li>
-                        <li>OTA firmware updates</li>
-                    </ul>
-                    <a href="ble-webui.html" class="btn btn-secondary">🔗 Connect via BLE</a>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3 style="color: #4a5568; margin-bottom: 20px;">📋 Device Information</h3>
-            
-            <div class="device-info">
-                <h4>📊 Technical Specifications</h4>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="info-label">Manufacturer</div>
-                        <div class="info-value">Gelidus Research Inc.</div>
+        <div class="content">
+            <div class="firmware-info">
+                <h3>🔧 Available Firmware Files</h3>
+                <p>Your GRSVC1 device supports multiple firmware upload methods. Download the appropriate file based on your chosen method:</p>
+                
+                <div class="file-list">
+                    <div class="file-item">
+                        <strong>grsvc1-r1-v1.0.0.bin</strong>
+                        <em>For OTA (Over-The-Air) updates via Web Bluetooth</em>
                     </div>
-                    <div class="info-item">
-                        <div class="info-label">Model</div>
-                        <div class="info-value">GRSVC V1</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Hardware</div>
-                        <div class="info-value">ESP32 Rev 1.0</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Firmware</div>
-                        <div class="info-value">v1.0.0</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">BLE Service</div>
-                        <div class="info-value">Automation IO (0x1815)</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">OTA Support</div>
-                        <div class="info-value">Enabled</div>
+                    <div class="file-item">
+                        <strong>grsvc1-r1-v1.0.0.uf2</strong>
+                        <em>For bootloader upload via USB mass storage</em>
                     </div>
                 </div>
+                
+                <a href="firmware/" class="btn">📁 Browse Firmware Files</a>
             </div>
 
-            <div class="requirements">
-                <h4>🖥️ Browser Requirements</h4>
+            <div class="method-grid">
+                <!-- OTA Method -->
+                <div class="method-card">
+                    <div class="badge recommended">RECOMMENDED</div>
+                    <h2>OTA (Over-The-Air) Update</h2>
+                    <p>Update firmware wirelessly using Web Bluetooth. No cables required!</p>
+                    
+                    <div class="pros-cons">
+                        <div class="pros">
+                            <h4>Advantages</h4>
+                            <ul>
+                                <li>No cables or drivers needed</li>
+                                <li>Works on any modern browser</li>
+                                <li>Device stays in enclosure</li>
+                                <li>Real-time progress tracking</li>
+                                <li>Automatic device restart</li>
+                            </ul>
+                        </div>
+                        <div class="cons">
+                            <h4>Requirements</h4>
+                            <ul>
+                                <li>Chrome/Edge browser (Web Bluetooth)</li>
+                                <li>Device must be powered on</li>
+                                <li>BLE connection required</li>
+                                <li>Use .bin firmware file</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="steps">
+                        <h3>Quick Steps</h3>
+                        <ol>
+                            <li>Power on your GRSVC1 device</li>
+                            <li>Open the Web UI below</li>
+                            <li>Click "Connect" and select "GRSVC1"</li>
+                            <li>Go to Firmware Update section</li>
+                            <li>Select .bin file and click "Start Update"</li>
+                            <li>Wait for completion and restart</li>
+                        </ol>
+                    </div>
+
+                    <a href="ble-webui.html" class="btn">🚀 Start OTA Update</a>
+                </div>
+
+                <!-- UF2 Method -->
+                <div class="method-card">
+                    <div class="badge advanced">ADVANCED</div>
+                    <h2>UF2 Bootloader Update</h2>
+                    <p>Direct firmware upload using USB connection and mass storage bootloader.</p>
+                    
+                    <div class="pros-cons">
+                        <div class="pros">
+                            <h4>Advantages</h4>
+                            <ul>
+                                <li>Works on any operating system</li>
+                                <li>No browser requirements</li>
+                                <li>Direct file system access</li>
+                                <li>Recovery from firmware issues</li>
+                                <li>Fastest upload method</li>
+                            </ul>
+                        </div>
+                        <div class="cons">
+                            <h4>Requirements</h4>
+                            <ul>
+                                <li>USB cable (micro USB)</li>
+                                <li>Physical access to device</li>
+                                <li>Bootloader activation</li>
+                                <li>Use .uf2 firmware file</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="steps">
+                        <h3>UF2 Upload Steps</h3>
+                        <ol>
+                            <li>Connect GRSVC1 to computer via USB</li>
+                            <li>Double-press RESET button quickly</li>
+                            <li>Device appears as "GRSVC1BOOT" drive</li>
+                            <li>Drag .uf2 file to the drive</li>
+                            <li>Device automatically restarts</li>
+                            <li>New firmware is active</li>
+                        </ol>
+                    </div>
+
+                    <a href="#uf2-details" class="btn secondary">📖 Detailed UF2 Guide</a>
+                </div>
+            </div>
+
+            <div class="warning">
+                <h4>⚠️ Important Safety Notes</h4>
                 <ul>
-                    <li><strong>USB Flasher:</strong> Chrome 89+, Edge 89+, or Opera 75+ (desktop only)</li>
-                    <li><strong>BLE Interface:</strong> Chrome 56+, Edge 79+, Opera 43+ (desktop/mobile)</li>
-                    <li><strong>HTTPS Required:</strong> Both tools require secure connection for Web APIs</li>
-                    <li><strong>Permissions:</strong> Allow serial port and Bluetooth access when prompted</li>
+                    <li><strong>Never power off</strong> the device during a firmware update</li>
+                    <li><strong>Use correct firmware files</strong> - .bin for OTA, .uf2 for bootloader</li>
+                    <li><strong>Ensure stable power</strong> - connect USB or ensure battery > 50%</li>
+                    <li><strong>Backup settings</strong> if you have custom configurations</li>
                 </ul>
             </div>
-        </div>
 
-        <div class="card">
-            <h3 style="color: #4a5568; margin-bottom: 20px;">🔧 Available Features</h3>
-            
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-                <div>
-                    <h4 style="color: #667eea; margin-bottom: 10px;">🌊 Flow Monitoring</h4>
-                    <ul class="features">
-                        <li>Real-time flow sensor readings</li>
-                        <li>Volume flow characteristic (0x2B1B)</li>
-                        <li>Pulse counting with interrupt</li>
-                        <li>Flow data in L/min</li>
-                    </ul>
-                </div>
+            <div id="uf2-details" class="info">
+                <h4>🔧 UF2 Bootloader Details</h4>
+                <p><strong>What is UF2?</strong> UF2 (USB Flashing Format) is a file format developed by Microsoft for flashing microcontrollers over USB mass storage.</p>
                 
-                <div>
-                    <h4 style="color: #667eea; margin-bottom: 10px;">🔋 Power Management</h4>
-                    <ul class="features">
-                        <li>Battery level monitoring</li>
-                        <li>12V output control</li>
-                        <li>ADC voltage sensing</li>
-                        <li>Power state management</li>
-                    </ul>
-                </div>
+                <p><strong>Activating Bootloader Mode:</strong></p>
+                <ol>
+                    <li>Locate the RESET button on your GRSVC1 device</li>
+                    <li>While connected via USB, double-press RESET quickly (within 0.5 seconds)</li>
+                    <li>The device LED should change pattern to indicate bootloader mode</li>
+                    <li>A new drive called "GRSVC1BOOT" will appear on your computer</li>
+                    <li>If it doesn't work, try pressing RESET while connecting USB</li>
+                </ol>
                 
-                <div>
-                    <h4 style="color: #667eea; margin-bottom: 10px;">🌡️ Environmental</h4>
-                    <ul class="features">
-                        <li>Temperature sensing</li>
-                        <li>Humidity monitoring</li>
-                        <li>Standard BLE characteristics</li>
-                        <li>Real-time notifications</li>
-                    </ul>
-                </div>
-                
-                <div>
-                    <h4 style="color: #667eea; margin-bottom: 10px;">⚙️ Control Systems</h4>
-                    <ul class="features">
-                        <li>Dual valve control</li>
-                        <li>GPIO pin management</li>
-                        <li>Remote command interface</li>
-                        <li>Status monitoring</li>
-                    </ul>
-                </div>
+                <p><strong>Troubleshooting:</strong></p>
+                <ul>
+                    <li>If drive doesn't appear, try different USB cables/ports</li>
+                    <li>Ensure you're double-pressing RESET quickly enough</li>
+                    <li>Some computers may take a few seconds to recognize the drive</li>
+                    <li>Try pressing RESET while plugging in USB cable</li>
+                </ul>
+            </div>
+
+            <div class="info">
+                <h4>📱 Browser Compatibility</h4>
+                <p><strong>OTA Updates require Web Bluetooth support:</strong></p>
+                <ul>
+                    <li>✅ <strong>Chrome</strong> (recommended) - Desktop and Android</li>
+                    <li>✅ <strong>Microsoft Edge</strong> - Desktop</li>
+                    <li>✅ <strong>Opera</strong> - Desktop and Android</li>
+                    <li>❌ <strong>Firefox</strong> - Web Bluetooth not supported</li>
+                    <li>❌ <strong>Safari</strong> - Web Bluetooth not supported</li>
+                    <li>❌ <strong>iOS browsers</strong> - Web Bluetooth not available</li>
+                </ul>
+                <p><em>For unsupported browsers, use the UF2 bootloader method instead.</em></p>
+            </div>
+
+            <div class="info">
+                <h4>🆘 Recovery Options</h4>
+                <p>If your GRSVC1 device becomes unresponsive after a firmware update:</p>
+                <ol>
+                    <li><strong>Try UF2 Recovery:</strong> Use the bootloader method to flash known-good firmware</li>
+                    <li><strong>Hard Reset:</strong> Hold RESET button for 10+ seconds while powered</li>
+                    <li><strong>Power Cycle:</strong> Disconnect power/USB for 30 seconds, then reconnect</li>
+                    <li><strong>Factory Reset:</strong> Use the original factory firmware if available</li>
+                </ol>
+            </div>
+
+            <div style="text-align: center; margin-top: 40px;">
+                <a href="ble-webui.html" class="btn">🌐 Start OTA Web Interface</a>
+                <a href="firmware/" class="btn secondary">📁 Download Firmware Files</a>
             </div>
         </div>
-
-        <div class="footer">
-            <p>&copy; 2025 Gelidus Research Inc. | <a href="https://www.gelidus.ca/setup-guide-grsvc1" target="_blank">Setup Guide</a></p>
-            <p>GRSVC1 Multi-Function IoT Device - ESP32 Based Solution</p>
-        </div>
     </div>
-
-    <script>
-        // Check if running on HTTPS or localhost for better user experience
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-            const warning = document.createElement('div');
-            warning.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; background: #fbbf24; color: #92400e; padding: 10px; text-align: center; z-index: 1000;';
-            warning.innerHTML = '⚠️ HTTPS connection recommended for full Web API functionality';
-            document.body.insertBefore(warning, document.body.firstChild);
-        }
-
-        // Add click tracking for tools
-        document.querySelectorAll('.btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                console.log(`Navigating to: ${e.target.href}`);
-            });
-        });
-    </script>
 </body>
 </html>

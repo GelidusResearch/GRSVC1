@@ -4,20 +4,38 @@
 #include <DHT.h>  // Adafruit DHT library
 #include "main_functions.h"
 
+// Function declarations
+void updateStatusLED();
+
 // Pin definitions
-#define BATTERY_ADC      2    // P0.02 (AIN0)
-#define STATUS_LED       4    // P0.04
-#define EN_12V           5    // P0.05
-#define DHT_PIN          6    // P0.06
-#define FLOW_PULSES      8    // P0.08
-#define PUSH_BUTTON_1   13    // P0.13
-#define PUSH_BUTTON_2   15    // P0.15
-#define PUSH_BUTTON_3   16    // P0.16
-#define USB_DETECT      17    // P0.17
-#define HB_1A_VALVE_1   21    // P0.21
-#define HB_1B_VALVE_1   22    // P0.22
-#define HB_2A_VALVE_2   23    // P0.23
-#define HB_2B_VALVE_2   24    // P0.24
+// #define BATTERY_ADC      4    // P0.04 (AIN2)
+// #define STATUS_LED       2    // P0.02
+// #define EN_12V           5    // P0.05
+// #define DHT_PIN          6    // P0.06
+// #define FLOW_PULSES      8    // P0.08
+// #define PUSH_BUTTON_1   13    // P0.13
+// #define PUSH_BUTTON_2   15    // P0.15
+// #define PUSH_BUTTON_3   16    // P0.16
+// #define USB_DETECT      17    // P0.17
+// #define HB_1A_VALVE_1   21    // P0.21
+// #define HB_1B_VALVE_1   22    // P0.22
+// #define HB_2A_VALVE_2   23    // P0.23
+// #define HB_2B_VALVE_2   24    // P0.24
+
+// Pin definitions
+#define BATTERY_ADC      4    // P0.04
+#define STATUS_LED      15    // P0.15
+#define EN_12V           6    // P0.06
+#define DHT_PIN          8    // P0.08
+#define FLOW_PULSES     24    // P0.17
+#define PUSH_BUTTON_1   17    // P0.20
+#define PUSH_BUTTON_2   20    // P0.22
+#define PUSH_BUTTON_3   22    // P0.24
+#define USB_DETECT      11    // P0.11
+#define HB_1A_VALVE_1   104   // P1.04
+#define HB_1B_VALVE_1   106   // P1.06
+#define HB_2A_VALVE_2   109   // P1.09
+#define HB_2B_VALVE_2   110   // P1.10
 
 #define DHTTYPE DHT22
 DHT dht(DHT_PIN, DHTTYPE);
@@ -41,6 +59,19 @@ unsigned long lastBtn1Press = 0;
 unsigned long lastBtn2Press = 0;
 unsigned long lastBtn3Press = 0;
 const unsigned long debounceMs = 200;
+
+// Status LED timing
+unsigned long lastLEDUpdate = 0;
+bool ledPulseState = false;
+const unsigned long ledPulseInterval = 1000; // 1 second pulse when disconnected
+
+// Debug output timing to reduce BLE interference
+unsigned long lastDebugOutput = 0;
+const unsigned long debugOutputInterval = 5000; // 5 seconds between debug prints
+
+// BLE notification timing to prevent overwhelming the connection
+unsigned long lastBLEUpdate = 0;
+const unsigned long bleUpdateInterval = 1000; // 1 second between BLE notifications
 
 // BLE restart flag
 bool restartAdvertising = false;
@@ -100,14 +131,18 @@ void loop() {
   handleButtons();
 
   // Status LED
-  blinkStatusLED();
+  updateStatusLED();
 
-  // Print debug info
-  Serial.print("Battery: "); Serial.print(batteryVoltage); Serial.print(" V ("); Serial.print(batteryPct); Serial.println("%)");
-  Serial.print("Temp: "); Serial.println(temp);
-  Serial.print("Hum: "); Serial.println(hum);
-  Serial.print("Flow pulses: "); Serial.println(pulseCount);
-  Serial.print("USB: "); Serial.println(isUSBConnected() ? "Connected" : "Disconnected");
+  // Print debug info (reduced frequency to avoid BLE interference)
+  unsigned long now = millis();
+  if (now - lastDebugOutput >= debugOutputInterval) {
+    Serial.print("Battery: "); Serial.print(batteryVoltage); Serial.print(" V ("); Serial.print(batteryPct); Serial.println("%)");
+    Serial.print("Temp: "); Serial.println(temp);
+    Serial.print("Hum: "); Serial.println(hum);
+    Serial.print("Flow pulses: "); Serial.println(pulseCount);
+    Serial.print("USB: "); Serial.println(isUSBConnected() ? "Connected" : "Disconnected");
+    lastDebugOutput = now;
+  }
 
   // BLE connection status and ensure advertising
   if (pServer) {
@@ -160,7 +195,7 @@ void loop() {
 
   // Power management
   enterSleepIfIdle();
-  delay(1000);
+  delay(500); // Reduced from 1000ms for better BLE responsiveness
 }
 
 // --- Function implementations ---
@@ -226,8 +261,20 @@ void setValve(uint8_t valveNum, bool open) {
   // Update state tracking
   if (valveNum == 1) {
     valve1State = open;
+    // Immediately notify BLE clients of valve state change
+    if (pServer && pServer->getConnectedCount() > 0 && valve1StateChar) {
+      uint8_t v1State = valve1State ? 1 : 0;
+      valve1StateChar->setValue(&v1State, 1);
+      valve1StateChar->notify();
+    }
   } else {
     valve2State = open;
+    // Immediately notify BLE clients of valve state change
+    if (pServer && pServer->getConnectedCount() > 0 && valve2StateChar) {
+      uint8_t v2State = valve2State ? 1 : 0;
+      valve2StateChar->setValue(&v2State, 1);
+      valve2StateChar->notify();
+    }
   }
   
   Serial.print("Valve ");
@@ -317,11 +364,26 @@ void setupFlowSensor() {
 void setupStatusLED() {
   pinMode(STATUS_LED, OUTPUT);
 }
-void blinkStatusLED() {
-  digitalWrite(STATUS_LED, HIGH);
-  delay(100);
-  digitalWrite(STATUS_LED, LOW);
-  delay(900);
+void updateStatusLED() {
+  // Check if we have BLE clients connected
+  bool hasConnectedClients = (pServer && pServer->getConnectedCount() > 0);
+  
+  if (hasConnectedClients) {
+    // Steady 10% PWM when connected
+    analogWrite(STATUS_LED, 25); // 10% of 255 = 25
+  } else {
+    // Pulse once per second when disconnected (10% on, 90% off)
+    unsigned long now = millis();
+    if (now - lastLEDUpdate >= ledPulseInterval) {
+      ledPulseState = !ledPulseState;
+      if (ledPulseState) {
+        analogWrite(STATUS_LED, 25); // 10% PWM for brief pulse
+      } else {
+        analogWrite(STATUS_LED, 0);  // Off
+      }
+      lastLEDUpdate = now;
+    }
+  }
 }
 void setupUSBDetect() {
   pinMode(USB_DETECT, INPUT);
@@ -340,12 +402,18 @@ public:
         Serial.println("Client connected");
         Serial.print("Connected count: ");
         Serial.println(pServer->getConnectedCount());
+        Serial.println("Connection established - service discovery should begin");
     }
 
     void onDisconnect(NimBLEServer* pServer) {
         Serial.println("Client disconnected - Scheduling advertising restart...");
         restartAdvertising = true;
         advertisingRestartTime = millis() + 500; // restart after 500ms delay
+    }
+    
+    void onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
+        Serial.print("MTU updated: ");
+        Serial.println(MTU);
     }
 };
 
@@ -581,9 +649,9 @@ void setupBLE() {
     pAdvertising->addServiceUUID("12345678-1234-1234-1234-123456789ABE"); // Valve Service
     pAdvertising->addServiceUUID("12345678-1234-1234-1234-123456789AC3"); // OTA Service
     
-    // Set advertising intervals
-    pAdvertising->setMinInterval(32);   // 20ms - faster advertising
-    pAdvertising->setMaxInterval(160);  // 100ms - faster advertising
+    // Set advertising intervals for better connection stability
+    pAdvertising->setMinInterval(160);  // 100ms - slower for stability
+    pAdvertising->setMaxInterval(240);  // 150ms - slower for stability
     
     // Enhanced name advertising for Web Bluetooth compatibility
     pAdvertising->setName("GRSVC1");
@@ -615,39 +683,47 @@ void setupBLE() {
 void updateBLE(float temp, float hum, float battery, uint8_t battery_pct) {
     if (!pServer) return;
     
+    // Limit notification frequency to prevent overwhelming the connection
+    unsigned long now = millis();
+    bool shouldNotify = (now - lastBLEUpdate >= bleUpdateInterval);
+    
+    if (shouldNotify) {
+        lastBLEUpdate = now;
+    }
+    
     // Update battery level
     batteryLevelChar->setValue(battery_pct);
-    if (pServer->getConnectedCount() > 0) {
+    if (pServer->getConnectedCount() > 0 && shouldNotify) {
         batteryLevelChar->notify();
     }
     
     // Update temperature (in 0.01°C units)
     int16_t tempValue = (int16_t)(temp * 100);
     temperatureChar->setValue((uint8_t*)&tempValue, 2);
-    if (pServer->getConnectedCount() > 0) {
+    if (pServer->getConnectedCount() > 0 && shouldNotify) {
         temperatureChar->notify();
     }
     
     // Update humidity (in 0.01% units)
     uint16_t humValue = (uint16_t)(hum * 100);
     humidityChar->setValue((uint8_t*)&humValue, 2);
-    if (pServer->getConnectedCount() > 0) {
+    if (pServer->getConnectedCount() > 0 && shouldNotify) {
         humidityChar->notify();
     }
     
     // Update flow rate
     uint32_t currentPulseCount = pulseCount;
     flowRateChar->setValue((uint8_t*)&currentPulseCount, 4);
-    if (pServer->getConnectedCount() > 0) {
+    if (pServer->getConnectedCount() > 0 && shouldNotify) {
         flowRateChar->notify();
     }
     
-    // Update valve states
+    // Update valve states (always update, but notify less frequently)
     uint8_t v1State = valve1State ? 1 : 0;
     uint8_t v2State = valve2State ? 1 : 0;
     valve1StateChar->setValue(&v1State, 1);
     valve2StateChar->setValue(&v2State, 1);
-    if (pServer->getConnectedCount() > 0) {
+    if (pServer->getConnectedCount() > 0 && shouldNotify) {
         valve1StateChar->notify();
         valve2StateChar->notify();
     }

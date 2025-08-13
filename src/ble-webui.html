@@ -667,13 +667,17 @@
                 log(`Connecting to device: ${device.name || 'Unknown'}`);
                 server = await device.gatt.connect();
                 
+                // Wait for connection to stabilize before service discovery
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
                 // Connect to services
                 log('Discovering services...');
                 
-                // Try to connect to nRF52840 services with error handling
+                // Try to connect to nRF52840 services with error handling and delays
                 try {
                     batteryService = await server.getPrimaryService(BATTERY_SERVICE_UUID);
                     log('✓ Connected to Battery service (0x180F)');
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 } catch (error) {
                     log(`⚠️ Battery service not available: ${error.message}`, 'warning');
                 }
@@ -681,6 +685,7 @@
                 try {
                     environmentalService = await server.getPrimaryService(ENVIRONMENTAL_SERVICE_UUID);
                     log('✓ Connected to Environmental service (0x181A)');
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 } catch (error) {
                     log(`⚠️ Environmental service not available: ${error.message}`, 'warning');
                 }
@@ -688,6 +693,7 @@
                 try {
                     flowService = await server.getPrimaryService(FLOW_SERVICE_UUID);
                     log('✓ Connected to Flow service (custom)');
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 } catch (error) {
                     log(`⚠️ Flow service not available: ${error.message}`, 'warning');
                 }
@@ -695,6 +701,7 @@
                 try {
                     valveService = await server.getPrimaryService(VALVE_SERVICE_UUID);
                     log('✓ Connected to Valve service (custom)');
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 } catch (error) {
                     log(`⚠️ Valve service not available: ${error.message}`, 'warning');
                 }
@@ -702,17 +709,18 @@
                 try {
                     deviceInfoService = await server.getPrimaryService(DEVICE_INFO_SERVICE_UUID);
                     log('✓ Connected to Device Information service (0x180A)');
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 } catch (error) {
                     log(`⚠️ Device Information service not available: ${error.message}`, 'warning');
                 }
                 
                 log('Getting characteristics...');
-                // Get characteristics from respective services with error handling
+                // Get characteristics from respective services with error handling and longer delays
                 if (batteryService) {
                     try {
                         batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
                         log('✓ Battery characteristic available');
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 250));
                     } catch (error) {
                         log(`⚠️ Battery characteristic failed: ${error.message}`, 'warning');
                     }
@@ -721,9 +729,10 @@
                 if (environmentalService) {
                     try {
                         temperatureCharacteristic = await environmentalService.getCharacteristic(TEMPERATURE_CHARACTERISTIC_UUID);
+                        await new Promise(resolve => setTimeout(resolve, 100));
                         humidityCharacteristic = await environmentalService.getCharacteristic(HUMIDITY_CHARACTERISTIC_UUID);
                         log('✓ Temperature and humidity characteristics available');
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 250));
                     } catch (error) {
                         log(`⚠️ Environmental characteristics failed: ${error.message}`, 'warning');
                     }
@@ -733,7 +742,7 @@
                     try {
                         flowCharacteristic = await flowService.getCharacteristic(FLOW_CHARACTERISTIC_UUID);
                         log('✓ Flow characteristic available');
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 250));
                     } catch (error) {
                         log(`⚠️ Flow characteristic failed: ${error.message}`, 'warning');
                     }
@@ -742,9 +751,10 @@
                 if (valveService) {
                     try {
                         valve1Characteristic = await valveService.getCharacteristic(VALVE1_CHARACTERISTIC_UUID);
+                        await new Promise(resolve => setTimeout(resolve, 100));
                         valve2Characteristic = await valveService.getCharacteristic(VALVE2_CHARACTERISTIC_UUID);
                         log('✓ Valve characteristics available');
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 250));
                     } catch (error) {
                         log(`⚠️ Valve characteristics failed: ${error.message}`, 'warning');
                     }
@@ -754,18 +764,22 @@
                 if (deviceInfoService) {
                     try {
                         deviceNameCharacteristic = await deviceInfoService.getCharacteristic(DEVICE_NAME_CHARACTERISTIC_UUID);
+                        await new Promise(resolve => setTimeout(resolve, 100));
                         firmwareVersionCharacteristic = await deviceInfoService.getCharacteristic(FIRMWARE_VERSION_CHARACTERISTIC_UUID);
                         log('✓ Device info characteristics available');
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        await new Promise(resolve => setTimeout(resolve, 250));
                     } catch (deviceInfoError) {
                         log(`⚠️ Some device info characteristics not available: ${deviceInfoError.message}`, 'warning');
                     }
                 }
                 
-                // Get OTA service
+                // Get OTA service with delay
                 try {
+                    await new Promise(resolve => setTimeout(resolve, 300));
                     otaService = await server.getPrimaryService(OTA_SERVICE_UUID);
+                    await new Promise(resolve => setTimeout(resolve, 100));
                     otaControlCharacteristic = await otaService.getCharacteristic(OTA_CONTROL_CHARACTERISTIC_UUID);
+                    await new Promise(resolve => setTimeout(resolve, 100));
                     otaDataCharacteristic = await otaService.getCharacteristic(OTA_DATA_CHARACTERISTIC_UUID);
                     log('✓ OTA service available');
                     document.getElementById('firmwareCard').style.display = 'block';
@@ -773,6 +787,9 @@
                     log(`⚠️ OTA service not available: ${otaError.message}`, 'warning');
                     document.getElementById('firmwareCard').style.display = 'none';
                 }
+
+                // Final connection stabilization delay
+                await new Promise(resolve => setTimeout(resolve, 500));
 
                 updateConnectionStatus(true);
                 startMonitoring();
@@ -793,28 +810,12 @@
                     throw new Error('Connection lost after setup');
                 }
                 
-                // Wait a bit before reading device info to ensure connection is stable
+                // Wait longer before reading device info to ensure connection is stable
                 setTimeout(async () => {
                     if (window.device && window.device.gatt && window.device.gatt.connected) {
                         await readDeviceInfo();
                     }
-                }, 2000);
-                
-                // Try to read device name from characteristic
-                if (deviceNameCharacteristic) {
-                    try {
-                        const nameValue = await deviceNameCharacteristic.readValue();
-                        const deviceName = new TextDecoder().decode(nameValue);
-                        if (deviceName && deviceName !== deviceInfo.name) {
-                            log(`✅ Confirmed device name: "${deviceName}"`, 'success');
-                            if (deviceName === 'GRSVC1') {
-                                log('🎯 This is your GRSVC1 device!', 'success');
-                            }
-                        }
-                    } catch (e) {
-                        log(`Could not read device name characteristic: ${e.message}`, 'warning');
-                    }
-                }
+                }, 3000);
                 
                 // Log available services for verification
                 const serviceCount = [batteryService, environmentalService, flowService, valveService, deviceInfoService, otaService].filter(s => s).length;
